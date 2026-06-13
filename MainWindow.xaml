@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="WinRequest.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Win Request">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid>
+        <NavigationView x:Name="MainNav"
+                        PaneDisplayMode="LeftMinimal"
+                        IsPaneOpen="False"
+                        OpenPaneLength="220"
+                        IsBackButtonVisible="Collapsed"
+                        IsSettingsVisible="False"
+                        AlwaysShowHeader="False"
+                        Background="Transparent"
+                        SelectionChanged="MainNav_SelectionChanged">
+            <NavigationView.Resources>
+                <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
+                <SolidColorBrush x:Key="NavigationViewContentGridBackground" Color="Transparent" />
+            </NavigationView.Resources>
+
+            <NavigationView.MenuItems>
+                <NavigationViewItem x:Name="WorkspaceNavItem"
+                                    Content="API 工作台"
+                                    Tag="workspace"
+                                    ToolTipService.ToolTip="集合、请求与历史">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8A7;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+
+                <NavigationViewItem x:Name="SettingsNavItem"
+                                    Content="设置"
+                                    Tag="settings"
+                                    ToolTipService.ToolTip="主题、字体、关于与更新">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE713;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <Frame x:Name="ContentFrame" Margin="0,48,0,0" />
+        </NavigationView>
+
+        <StackPanel Orientation="Horizontal"
+                    VerticalAlignment="Top"
+                    Margin="56,0,0,0"
+                    Height="48"
+                    Spacing="8"
+                    IsHitTestVisible="False">
+            <FontIcon Glyph="&#xE8A7;" FontSize="18" VerticalAlignment="Center" />
+            <TextBlock Text="Win Request"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+        </StackPanel>
+
+        <Grid x:Name="AppTitleBar"
+              Height="48"
+              Background="Transparent"
+              VerticalAlignment="Top"
+              Margin="180,0,140,0" />
+    </Grid>
+</Window>
