@@ -26,7 +26,10 @@ public sealed class WorkspaceStorage
                 return CreateDefaultWorkspace();
 
             string json = await File.ReadAllTextAsync(WorkspaceFile);
-            return JsonSerializer.Deserialize<ApiWorkspace>(json, JsonOptions) ?? CreateDefaultWorkspace();
+            var workspace = JsonSerializer.Deserialize<ApiWorkspace>(json, JsonOptions) ?? CreateDefaultWorkspace();
+            foreach (var collection in workspace.Collections)
+                collection.EnsureNodes();
+            return workspace;
         }
         catch
         {
@@ -54,31 +57,46 @@ public sealed class WorkspaceStorage
                 new ApiCollection
                 {
                     Name = "默认集合",
-                    Requests =
+                    Nodes =
                     {
-                        new ApiRequest
+                        new CollectionNode
                         {
                             Name = "示例 HTTP",
-                            Method = "GET",
-                            Url = "{{baseUrl}}/get",
-                            Type = ApiRequestType.Http
+                            IsFolder = false,
+                            Request = new ApiRequest
+                            {
+                                Name = "示例 HTTP",
+                                Method = "GET",
+                                Url = "{{baseUrl}}/get",
+                                Type = ApiRequestType.Http
+                            }
                         },
-                        new ApiRequest
+                        new CollectionNode
                         {
                             Name = "示例 WebSocket",
-                            Method = "CONNECT",
-                            Url = "wss://echo.websocket.events",
-                            Type = ApiRequestType.WebSocket,
-                            Body = "hello"
+                            IsFolder = false,
+                            Request = new ApiRequest
+                            {
+                                Name = "示例 WebSocket",
+                                Method = "CONNECT",
+                                Url = "wss://echo.websocket.events",
+                                Type = ApiRequestType.WebSocket,
+                                Body = "hello"
+                            }
                         },
-                        new ApiRequest
+                        new CollectionNode
                         {
                             Name = "示例 gRPC",
-                            Method = "POST",
-                            Url = "localhost:50051",
-                            Type = ApiRequestType.Grpc,
-                            GrpcMethod = "package.Service/Method",
-                            Body = "{}"
+                            IsFolder = false,
+                            Request = new ApiRequest
+                            {
+                                Name = "示例 gRPC",
+                                Method = "POST",
+                                Url = "localhost:50051",
+                                Type = ApiRequestType.Grpc,
+                                GrpcMethod = "package.Service/Method",
+                                Body = "{}"
+                            }
                         }
                     }
                 }

@@ -11,6 +11,17 @@ public enum ApiRequestType
     WebSocket
 }
 
+public enum ApiBodyType
+{
+    None,
+    Raw,
+    Json,
+    Xml,
+    FormData,
+    XWwwFormUrlencoded,
+    Binary
+}
+
 public sealed class ApiWorkspace
 {
     public List<ApiCollection> Collections { get; set; } = new();
@@ -35,6 +46,40 @@ public sealed class ApiCollection
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Name { get; set; } = "新建集合";
     public List<ApiRequest> Requests { get; set; } = new();
+    public List<CollectionNode> Nodes { get; set; } = new();
+
+    /// <summary>
+    /// Migrates legacy flat Requests list into the Nodes tree structure.
+    /// Call after deserialization to ensure backward compatibility.
+    /// </summary>
+    public void EnsureNodes()
+    {
+        if (Nodes.Count == 0 && Requests.Count > 0)
+        {
+            foreach (var req in Requests)
+            {
+                Nodes.Add(new CollectionNode
+                {
+                    Name = req.Name,
+                    IsFolder = false,
+                    Request = req
+                });
+            }
+            Requests.Clear();
+        }
+    }
+}
+
+/// <summary>
+/// Represents a node in the collection tree — either a folder or a request.
+/// </summary>
+public sealed class CollectionNode
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = "";
+    public bool IsFolder { get; set; } = true;
+    public List<CollectionNode> Children { get; set; } = new();
+    public ApiRequest? Request { get; set; }
 }
 
 public sealed class ApiRequest
@@ -46,9 +91,13 @@ public sealed class ApiRequest
     public string Url { get; set; } = "";
     public List<KeyValuePairItem> Headers { get; set; } = new();
     public List<KeyValuePairItem> Query { get; set; } = new();
+    public List<KeyValuePairItem> FormData { get; set; } = new();
+    public List<KeyValuePairItem> UrlEncodedData { get; set; } = new();
     public string Body { get; set; } = "";
+    public ApiBodyType BodyType { get; set; } = ApiBodyType.None;
     public string GrpcMethod { get; set; } = "";
     public bool GrpcUseTls { get; set; }
+    public string BinaryFilePath { get; set; } = "";
 }
 
 public sealed class KeyValuePairItem
@@ -149,9 +198,94 @@ public static class RequestHelpers
             Url = source.Url,
             Headers = source.Headers.Select(x => new KeyValuePairItem { Key = x.Key, Value = x.Value, Enabled = x.Enabled }).ToList(),
             Query = source.Query.Select(x => new KeyValuePairItem { Key = x.Key, Value = x.Value, Enabled = x.Enabled }).ToList(),
+            FormData = source.FormData.Select(x => new KeyValuePairItem { Key = x.Key, Value = x.Value, Enabled = x.Enabled }).ToList(),
+            UrlEncodedData = source.UrlEncodedData.Select(x => new KeyValuePairItem { Key = x.Key, Value = x.Value, Enabled = x.Enabled }).ToList(),
             Body = source.Body,
+            BodyType = source.BodyType,
             GrpcMethod = source.GrpcMethod,
-            GrpcUseTls = source.GrpcUseTls
+            GrpcUseTls = source.GrpcUseTls,
+            BinaryFilePath = source.BinaryFilePath
         };
+    }
+
+    /// <summary>
+    /// Deep-clone a CollectionNode tree.
+    /// </summary>
+    public static CollectionNode CloneNode(CollectionNode source)
+    {
+        var clone = new CollectionNode
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = source.Name,
+            IsFolder = source.IsFolder,
+            Request = source.Request != null ? Clone(source.Request) : null
+        };
+        if (source.Request != null)
+            clone.Request!.Id = Guid.NewGuid().ToString();
+        foreach (var child in source.Children)
+            clone.Children.Add(CloneNode(child));
+        return clone;
+    }
+
+    /// <summary>
+    /// Find a request node by ID in a list of nodes (recursive).
+    /// </summary>
+    public static CollectionNode? FindNodeById(List<CollectionNode> nodes, string requestId)
+    {
+        foreach (var node in nodes)
+        {
+            if (!node.IsFolder && node.Request?.Id == requestId)
+                return node;
+            var found = FindNodeById(node.Children, requestId);
+            if (found != null)
+                return found;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Find the parent list that contains the node with the given request ID.
+    /// </summary>
+    public static List<CollectionNode>? FindParentList(List<CollectionNode> nodes, string requestId)
+    {
+        foreach (var node in nodes)
+        {
+            if (!node.IsFolder && node.Request?.Id == requestId)
+                return nodes;
+            var found = FindParentList(node.Children, requestId);
+            if (found != null)
+                return found;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Find a folder node by its node ID (recursive).
+    /// </summary>
+    public static CollectionNode? FindFolderById(List<CollectionNode> nodes, string nodeId)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Id == nodeId)
+                return node;
+            var found = FindFolderById(node.Children, nodeId);
+            if (found != null)
+                return found;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Collect all request nodes from a tree (flattened).
+    /// </summary>
+    public static IEnumerable<CollectionNode> GetAllRequestNodes(List<CollectionNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            if (!node.IsFolder && node.Request != null)
+                yield return node;
+            foreach (var child in GetAllRequestNodes(node.Children))
+                yield return child;
+        }
     }
 }

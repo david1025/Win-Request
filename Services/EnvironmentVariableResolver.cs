@@ -35,6 +35,14 @@ public static partial class EnvironmentVariableResolver
                 Enabled = x.Enabled
             })
             .ToList();
+        clone.FormData = clone.FormData
+            .Select(x => new KeyValuePairItem
+            {
+                Key = ReplaceTokens(x.Key, map),
+                Value = ReplaceTokens(x.Value, map),
+                Enabled = x.Enabled
+            })
+            .ToList();
 
         return clone;
     }

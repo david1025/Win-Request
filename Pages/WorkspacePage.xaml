@@ -3,102 +3,281 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:ui="using:CommunityToolkit.WinUI.Controls"
+    xmlns:controls="using:WinRequest.Controls"
+    xmlns:models="using:WinRequest.Models"
+    xmlns:converters="using:WinRequest.Converters"
     NavigationCacheMode="Required">
+
+    <Page.Resources>
+        <Style x:Key="SectionCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="16,12" />
+        </Style>
+
+        <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="MinWidth" Value="32" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style x:Key="BodySegmentButtonStyle" TargetType="ToggleButton">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="12,5" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        </Style>
+
+        <!-- HTTP method badge colors -->
+        <SolidColorBrush x:Key="GetMethodBrush" Color="#16a34a" />
+        <SolidColorBrush x:Key="PostMethodBrush" Color="#ca8a04" />
+        <SolidColorBrush x:Key="PutMethodBrush" Color="#2563eb" />
+        <SolidColorBrush x:Key="DeleteMethodBrush" Color="#dc2626" />
+        <SolidColorBrush x:Key="PatchMethodBrush" Color="#9333ea" />
+        <SolidColorBrush x:Key="DefaultMethodBrush" Color="#6b7280" />
+
+        <!-- Value converters for tree node DataTemplate -->
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+        <converters:MethodToBrushConverter x:Key="MethodToBrushConverter" />
+
+        <!-- TreeView node DataTemplate: folders show icon+name, requests show method badge+name, with hover action buttons -->
+        <DataTemplate x:Key="TreeNodeTemplate">
+            <Grid MinHeight="28" Padding="2,0"
+                  PointerEntered="TreeNode_PointerEntered"
+                  PointerExited="TreeNode_PointerExited">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Left: icon/badge + name -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6"
+                            VerticalAlignment="Center" MinWidth="0">
+                    <!-- Folder icon (visible only for folder nodes) -->
+                    <FontIcon Glyph="&#xE8B7;" FontSize="14"
+                              VerticalAlignment="Center"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                              Visibility="{Binding Content.IsFolder, Converter={StaticResource BoolToVisibilityConverter}}" />
+                    <!-- HTTP method badge (visible only for request nodes) -->
+                    <Border CornerRadius="3" Padding="5,1" MinWidth="38"
+                            VerticalAlignment="Center"
+                            Background="{Binding Content.Request.Method, Converter={StaticResource MethodToBrushConverter}}"
+                            Visibility="{Binding Content.IsFolder, Converter={StaticResource InverseBoolToVisibilityConverter}}">
+                        <TextBlock Text="{Binding Content.Request.Method}" FontSize="10" FontWeight="SemiBold"
+                                   Foreground="White" HorizontalAlignment="Center" />
+                    </Border>
+                    <!-- Node name (always visible) -->
+                    <TextBlock Text="{Binding Content.Name}"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+
+                <!-- Right: hover action buttons (add + more) -->
+                <StackPanel x:Name="NodeActionPanel" Grid.Column="1"
+                            Orientation="Horizontal" Spacing="2"
+                            VerticalAlignment="Center"
+                            Visibility="Collapsed">
+                    <Button Tag="{Binding Content}"
+                            Click="NodeAddButton_Click"
+                            ToolTipService.ToolTip="新建请求"
+                            Padding="4,2" MinWidth="0" MinHeight="0"
+                            Background="Transparent" BorderThickness="0">
+                        <FontIcon Glyph="&#xE710;" FontSize="11" />
+                    </Button>
+                    <Button Tag="{Binding Content}"
+                            Click="NodeMoreButton_Click"
+                            ToolTipService.ToolTip="更多操作"
+                            Padding="4,2" MinWidth="0" MinHeight="0"
+                            Background="Transparent" BorderThickness="0">
+                        <FontIcon Glyph="&#xE712;" FontSize="11" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+        <!-- Context menu for tree nodes -->
+        <MenuFlyout x:Key="TreeNodeFlyout">
+            <MenuFlyoutItem Text="新建请求" Icon="Add" Click="ContextAddRequest_Click" />
+            <MenuFlyoutItem Text="新建子文件夹" Click="ContextAddSubFolder_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE8F4;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutSeparator />
+            <MenuFlyoutItem Text="重命名" Click="ContextRename_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE8AC;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem Text="复制请求" Click="ContextDuplicate_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE8C8;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutSeparator />
+            <MenuFlyoutItem Text="删除" Click="ContextDelete_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE74D;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+        </MenuFlyout>
+
+        <!-- Context menu for open request tabs -->
+        <MenuFlyout x:Key="TabContextMenu">
+            <MenuFlyoutItem Text="关闭" Click="TabContext_Close_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE711;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem Text="关闭其他" Click="TabContext_CloseOthers_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE89A;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutSeparator />
+            <MenuFlyoutItem Text="关闭左侧" Click="TabContext_CloseLeft_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE76B;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem Text="关闭右侧" Click="TabContext_CloseRight_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE76C;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+        </MenuFlyout>
+    </Page.Resources>
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="300" MinWidth="220" MaxWidth="520" />
+            <ColumnDefinition Width="280" MinWidth="200" MaxWidth="480" />
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Grid Grid.Column="0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="180" />
-            </Grid.RowDefinitions>
+        <!-- ── Left Sidebar ── -->
+        <Grid Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}"
+              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
+            <TabView IsAddTabButtonVisible="False" CanDragTabs="False"
+                     Padding="4,4,4,0" TabWidthMode="SizeToContent">
+                <!-- Collection Tab -->
+                <TabViewItem Header="集合" IsClosable="False">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
 
-            <StackPanel Grid.Row="0" Padding="16,12,12,8" Spacing="10">
-                <TextBlock Text="集合" Style="{ThemeResource SubtitleTextBlockStyle}" />
-                <Grid ColumnSpacing="6">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0" Click="AddRequestButton_Click" Style="{ThemeResource AccentButtonStyle}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE710;" FontSize="13" />
-                            <TextBlock Text="请求" />
-                        </StackPanel>
-                    </Button>
-                    <ComboBox x:Name="CollectionComboBox"
-                              Grid.Column="1"
-                              MinWidth="120"
-                              DisplayMemberPath="Name"
-                              SelectionChanged="CollectionComboBox_SelectionChanged" />
-                    <Button Grid.Column="2" Click="AddCollectionButton_Click" ToolTipService.ToolTip="新建集合">
-                        <FontIcon Glyph="&#xE8F4;" FontSize="13" />
-                    </Button>
-                    <Button Grid.Column="3" Click="DeleteCollectionButton_Click" ToolTipService.ToolTip="删除当前集合">
-                        <FontIcon Glyph="&#xE74D;" FontSize="13" />
-                    </Button>
-                    <Button Grid.Column="4" Click="ImportSwaggerButton_Click" ToolTipService.ToolTip="导入 Swagger / OpenAPI">
-                        <FontIcon Glyph="&#xE8E5;" FontSize="13" />
-                    </Button>
-                </Grid>
-                <Grid ColumnSpacing="6">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="CollectionNameBox"
-                             PlaceholderText="集合名称"
-                             TextChanged="CollectionNameBox_TextChanged" />
-                    <Button Grid.Column="1"
-                            Click="DuplicateRequestButton_Click"
-                            ToolTipService.ToolTip="复制当前请求">
-                        <FontIcon Glyph="&#xE8C8;" FontSize="13" />
-                    </Button>
-                    <Button Grid.Column="2"
-                            Click="DeleteRequestButton_Click"
-                            ToolTipService.ToolTip="删除当前请求">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE74D;" FontSize="13" />
-                            <TextBlock Text="请求" />
-                        </StackPanel>
-                    </Button>
-                </Grid>
-                <TextBox x:Name="RequestSearchBox"
-                         PlaceholderText="搜索请求 / URL / 方法"
-                         TextChanged="RequestSearchBox_TextChanged" />
-            </StackPanel>
+                        <!-- Toolbar: search box + add button -->
+                        <Grid Padding="8,8,8,6" ColumnSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="RequestSearchBox"
+                                     Grid.Column="0"
+                                     PlaceholderText="搜索请求 / URL / 方法"
+                                     TextChanged="RequestSearchBox_TextChanged" />
+                            <Button Grid.Column="1"
+                                    ToolTipService.ToolTip="新增"
+                                    Style="{ThemeResource AccentButtonStyle}"
+                                    Padding="8,6">
+                                <FontIcon Glyph="&#xE710;" FontSize="13" />
+                                <Button.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <MenuFlyoutItem Text="新建请求" Icon="Add" Click="AddRequestButton_Click" />
+                                        <MenuFlyoutItem Text="新建文件夹" Click="AddFolderButton_Click">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE8F4;" />
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="新建集合" Click="AddCollectionButton_Click">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE8F4;" />
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutItem Text="删除当前集合" Click="DeleteCollectionButton_Click">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE74D;" />
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="导入 Swagger / OpenAPI" Click="ImportSwaggerButton_Click">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE8E5;" />
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                        </Grid>
 
-            <ListView x:Name="RequestListView"
-                      Grid.Row="1"
-                      Margin="8,0,8,8"
-                      SelectionChanged="RequestListView_SelectionChanged"
-                      DisplayMemberPath="DisplayText" />
+                        <!-- Request tree -->
+                        <TreeView x:Name="RequestTreeView"
+                                  Grid.Row="1"
+                                  Margin="6,0,6,6"
+                                  ItemInvoked="RequestTreeView_ItemInvoked"
+                                  RightTapped="RequestTreeView_RightTapped"
+                                  CanDragItems="False"
+                                  CanReorderItems="False"
+                                  CornerRadius="6"
+                                  ItemTemplate="{StaticResource TreeNodeTemplate}" />
+                    </Grid>
+                </TabViewItem>
 
-            <Grid Grid.Row="2" Padding="16,8,12,6">
-                <TextBlock Text="请求历史" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-            </Grid>
+                <!-- History Tab -->
+                <TabViewItem Header="历史" IsClosable="False">
+                    <ListView x:Name="HistoryListView"
+                              Margin="6,4,6,6"
+                              SelectionChanged="HistoryListView_SelectionChanged"
+                              DisplayMemberPath="DisplayText"
+                              CornerRadius="6" />
+                </TabViewItem>
 
-            <ListView x:Name="HistoryListView"
-                      Grid.Row="3"
-                      Margin="8,0,8,8"
-                      SelectionChanged="HistoryListView_SelectionChanged"
-                      DisplayMemberPath="DisplayText" />
+                <!-- Environment Variables Tab -->
+                <TabViewItem Header="环境" IsClosable="False">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Border Padding="8,8,8,4">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="环境变量"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Text="使用 {{name}} 引用变量"
+                                           FontSize="11"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                        <controls:KeyValueTable x:Name="EnvironmentTable"
+                                                Grid.Row="1"
+                                                Margin="6,0,6,6" />
+                    </Grid>
+                </TabViewItem>
+            </TabView>
         </Grid>
 
         <ui:GridSplitter Grid.Column="1" Width="8" Background="Transparent" />
 
-        <Grid Grid.Column="2" Padding="20,12,20,16" RowSpacing="12">
+        <!-- ── Main Content Area ── -->
+        <Grid Grid.Column="2" Padding="16,4,16,14" RowSpacing="8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -108,175 +287,332 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <TabView x:Name="OpenRequestTabView"
-                     Grid.Row="0"
-                     IsAddTabButtonVisible="False"
-                     CanDragTabs="False"
-                     SelectionChanged="OpenRequestTabView_SelectionChanged"
-                     TabCloseRequested="OpenRequestTabView_TabCloseRequested" />
-
-            <Grid Grid.Row="1" ColumnSpacing="8">
+            <!-- Row 0: Open request tabs -->
+            <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="150" />
-                    <ColumnDefinition Width="130" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-
-                <TextBox x:Name="NameBox"
-                         PlaceholderText="请求名称"
-                         TextChanged="Editor_TextChanged" />
-                <ComboBox x:Name="TypeComboBox"
-                          Grid.Column="1"
-                          SelectionChanged="TypeComboBox_SelectionChanged">
-                    <ComboBoxItem Content="HTTP" Tag="Http" IsSelected="True" />
-                    <ComboBoxItem Content="gRPC" Tag="Grpc" />
-                    <ComboBoxItem Content="WebSocket" Tag="WebSocket" />
-                </ComboBox>
-                <TextBox x:Name="UrlBox"
-                         Grid.Column="2"
-                         PlaceholderText="URL / gRPC host:port"
-                         TextChanged="Editor_TextChanged" />
-                <Button Grid.Column="3"
-                        Click="SaveButton_Click"
-                        ToolTipService.ToolTip="保存">
-                    <FontIcon Glyph="&#xE74E;" FontSize="14" />
-                </Button>
-                <Button Grid.Column="4"
-                        x:Name="SendButton"
-                        Click="SendButton_Click"
-                        Style="{ThemeResource AccentButtonStyle}">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE768;" FontSize="13" />
-                        <TextBlock Text="发送" />
-                    </StackPanel>
+                <TabView x:Name="OpenRequestTabView"
+                         Grid.Column="0"
+                         IsAddTabButtonVisible="False"
+                         CanDragTabs="False"
+                         SelectionChanged="OpenRequestTabView_SelectionChanged"
+                         TabCloseRequested="OpenRequestTabView_TabCloseRequested"
+                         RightTapped="OpenRequestTabView_RightTapped" />
+                <Button Grid.Column="1"
+                        Click="NewTabButton_Click"
+                        ToolTipService.ToolTip="新建请求"
+                        Padding="8,6"
+                        MinWidth="32" MinHeight="32"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        VerticalAlignment="Center"
+                        Margin="4,0,0,0">
+                    <FontIcon Glyph="&#xE710;" FontSize="13" />
                 </Button>
             </Grid>
 
-            <Grid Grid.Row="2" ColumnSpacing="8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="150" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="120" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+            <!-- Row 1: URL bar (card) -->
+            <Border Grid.Row="1" Style="{StaticResource SectionCardStyle}" Padding="12,6">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="120" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                <ComboBox x:Name="MethodComboBox"
-                          SelectionChanged="MethodComboBox_SelectionChanged">
-                    <ComboBoxItem Content="GET" IsSelected="True" />
-                    <ComboBoxItem Content="POST" />
-                    <ComboBoxItem Content="PUT" />
-                    <ComboBoxItem Content="PATCH" />
-                    <ComboBoxItem Content="DELETE" />
-                    <ComboBoxItem Content="HEAD" />
-                    <ComboBoxItem Content="OPTIONS" />
-                    <ComboBoxItem Content="CONNECT" />
-                </ComboBox>
-                <TextBox x:Name="GrpcMethodBox"
-                         Grid.Column="1"
-                         PlaceholderText="gRPC service/method，例如 helloworld.Greeter/SayHello"
-                         TextChanged="Editor_TextChanged" />
-                <CheckBox x:Name="GrpcTlsCheckBox"
-                          Grid.Column="2"
-                          Content="gRPC TLS"
-                          Checked="Editor_CheckChanged"
-                          Unchecked="Editor_CheckChanged" />
-                <Button Grid.Column="3"
-                        Click="FormatRequestJsonButton_Click"
-                        ToolTipService.ToolTip="格式化请求 Body JSON">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE943;" FontSize="13" />
-                        <TextBlock Text="格式化 JSON" />
-                    </StackPanel>
-                </Button>
-            </Grid>
-
-            <TabView Grid.Row="3" IsAddTabButtonVisible="False" CanDragTabs="False">
-                <TabViewItem Header="Headers">
-                    <TextBox x:Name="HeadersBox"
-                             AcceptsReturn="True"
-                             TextWrapping="NoWrap"
-                             FontFamily="Consolas"
-                             PlaceholderText="每行一个 Header，例如 Authorization: Bearer token"
-                             TextChanged="Editor_TextChanged" />
-                </TabViewItem>
-                <TabViewItem Header="Query">
-                    <TextBox x:Name="QueryBox"
-                             AcceptsReturn="True"
-                             TextWrapping="NoWrap"
-                             FontFamily="Consolas"
-                             PlaceholderText="每行一个查询参数，例如 page=1"
-                             TextChanged="Editor_TextChanged" />
-                </TabViewItem>
-                <TabViewItem Header="Body">
-                    <TextBox x:Name="BodyBox"
-                             AcceptsReturn="True"
-                             TextWrapping="NoWrap"
-                             FontFamily="Consolas"
-                             PlaceholderText="JSON / 文本 / WebSocket 消息 / gRPC JSON 请求体"
-                             TextChanged="Editor_TextChanged" />
-                </TabViewItem>
-                <TabViewItem Header="环境变量">
-                    <TextBox x:Name="EnvironmentBox"
-                             AcceptsReturn="True"
-                             TextWrapping="NoWrap"
-                             FontFamily="Consolas"
-                             PlaceholderText="每行一个变量，例如 baseUrl=https://api.example.com；请求中使用 {{baseUrl}}"
-                             TextChanged="EnvironmentBox_TextChanged" />
-                </TabViewItem>
-            </TabView>
-
-            <Grid Grid.Row="4" ColumnSpacing="12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="ResponseSummaryText"
-                           Text="响应"
-                           Style="{ThemeResource BodyStrongTextBlockStyle}"
-                           VerticalAlignment="Center" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                    <Button x:Name="CancelSendButton"
-                            Click="CancelSendButton_Click"
-                            Visibility="Collapsed"
-                            ToolTipService.ToolTip="取消当前请求">
+                    <TextBox x:Name="NameBox"
+                             PlaceholderText="请求名称"
+                             TextChanged="Editor_TextChanged"
+                             BorderThickness="0"
+                             Background="Transparent"
+                             Height="32"
+                             VerticalAlignment="Center" />
+                    <ComboBox x:Name="TypeComboBox"
+                              Grid.Column="1"
+                              SelectionChanged="TypeComboBox_SelectionChanged"
+                              Height="32"
+                              VerticalAlignment="Center">
+                        <ComboBoxItem Content="HTTP" Tag="Http" IsSelected="True" />
+                        <ComboBoxItem Content="gRPC" Tag="Grpc" />
+                        <ComboBoxItem Content="WebSocket" Tag="WebSocket" />
+                    </ComboBox>
+                    <TextBox x:Name="UrlBox"
+                             Grid.Column="2"
+                             PlaceholderText="URL / gRPC host:port"
+                             TextChanged="UrlBox_TextChanged"
+                             Height="32"
+                             VerticalAlignment="Center" />
+                    <Button Grid.Column="3"
+                            Click="SaveButton_Click"
+                            ToolTipService.ToolTip="保存"
+                            Style="{StaticResource IconButtonStyle}"
+                            Height="32"
+                            Width="32"
+                            VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE74E;" FontSize="14" />
+                    </Button>
+                    <Button Grid.Column="4"
+                            x:Name="SendButton"
+                            Click="SendButton_Click"
+                            Style="{ThemeResource AccentButtonStyle}"
+                            Padding="12,6"
+                            Height="32"
+                            VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE711;" FontSize="13" />
-                            <TextBlock Text="取消" />
+                            <FontIcon Glyph="&#xE768;" FontSize="13" />
+                            <TextBlock Text="发送" />
                         </StackPanel>
                     </Button>
-                    <Button Click="FormatResponseJsonButton_Click"
-                            ToolTipService.ToolTip="格式化响应 Body JSON">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE943;" FontSize="13" />
-                            <TextBlock Text="格式化响应" />
+                </Grid>
+            </Border>
+
+            <!-- Row 2: Method / gRPC / Format (card) -->
+            <Border Grid.Row="2" Style="{StaticResource SectionCardStyle}" Padding="12,6">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <ComboBox x:Name="MethodComboBox"
+                              SelectionChanged="MethodComboBox_SelectionChanged"
+                              Height="32"
+                              VerticalAlignment="Center">
+                        <ComboBoxItem Content="GET" IsSelected="True" />
+                        <ComboBoxItem Content="POST" />
+                        <ComboBoxItem Content="PUT" />
+                        <ComboBoxItem Content="PATCH" />
+                        <ComboBoxItem Content="DELETE" />
+                        <ComboBoxItem Content="HEAD" />
+                        <ComboBoxItem Content="OPTIONS" />
+                        <ComboBoxItem Content="CONNECT" />
+                    </ComboBox>
+                    <TextBox x:Name="GrpcMethodBox"
+                             Grid.Column="1"
+                             PlaceholderText="gRPC service/method，例如 helloworld.Greeter/SayHello"
+                             TextChanged="Editor_TextChanged"
+                             Height="32"
+                             VerticalAlignment="Center" />
+                    <CheckBox x:Name="GrpcTlsCheckBox"
+                              Grid.Column="2"
+                              Content="gRPC TLS"
+                              Checked="Editor_CheckChanged"
+                              Unchecked="Editor_CheckChanged"
+                              VerticalAlignment="Center"
+                              Margin="0,0,0,0" />
+                    <Button Grid.Column="3"
+                            Click="FormatRequestJsonButton_Click"
+                            ToolTipService.ToolTip="格式化请求 Body JSON"
+                            Height="32"
+                            VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <FontIcon Glyph="&#xE943;" FontSize="12" />
+                            <TextBlock Text="格式化 JSON" FontSize="12" />
                         </StackPanel>
                     </Button>
-                    <ProgressRing x:Name="SendProgressRing"
-                                  Width="22"
-                                  Height="22"
-                                  IsActive="False"
-                                  Visibility="Collapsed" />
-                </StackPanel>
-            </Grid>
+                </Grid>
+            </Border>
 
-            <TabView Grid.Row="5" IsAddTabButtonVisible="False" CanDragTabs="False">
-                <TabViewItem Header="Body">
-                    <TextBox x:Name="ResponseBodyBox"
-                             IsReadOnly="True"
-                             AcceptsReturn="True"
-                             TextWrapping="NoWrap"
-                             FontFamily="Consolas" />
-                </TabViewItem>
-                <TabViewItem Header="Headers">
-                    <TextBox x:Name="ResponseHeadersBox"
-                             IsReadOnly="True"
-                             AcceptsReturn="True"
-                             TextWrapping="NoWrap"
-                             FontFamily="Consolas" />
-                </TabViewItem>
-            </TabView>
+            <!-- Row 3: Request editor tabs (card) -->
+            <Border Grid.Row="3" Style="{StaticResource SectionCardStyle}" Padding="4">
+                <TabView IsAddTabButtonVisible="False" CanDragTabs="False">
+                    <TabViewItem Header="Headers" IsClosable="False">
+                        <controls:KeyValueTable x:Name="HeadersTable" />
+                    </TabViewItem>
+                    <TabViewItem Header="Query" IsClosable="False">
+                        <controls:KeyValueTable x:Name="QueryTable" />
+                    </TabViewItem>
+                    <TabViewItem Header="Body" IsClosable="False">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Body type segmented selector -->
+                            <Border Padding="8,6,8,4">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <ToggleButton x:Name="BodyNoneRadio" Content="none"
+                                                      IsChecked="True"
+                                                      Checked="BodyTypeRadio_Changed"
+                                                      Unchecked="BodyTypeRadio_Unchecked"
+                                                      Style="{StaticResource BodySegmentButtonStyle}" />
+                                        <ToggleButton x:Name="BodyFormDataRadio" Content="form-data"
+                                                      Checked="BodyTypeRadio_Changed"
+                                                      Unchecked="BodyTypeRadio_Unchecked"
+                                                      Style="{StaticResource BodySegmentButtonStyle}" />
+                                        <ToggleButton x:Name="BodyUrlEncodedRadio" Content="x-www-form-urlencoded"
+                                                      Checked="BodyTypeRadio_Changed"
+                                                      Unchecked="BodyTypeRadio_Unchecked"
+                                                      Style="{StaticResource BodySegmentButtonStyle}" />
+                                        <ToggleButton x:Name="BodyRawRadio" Content="raw"
+                                                      Checked="BodyTypeRadio_Changed"
+                                                      Unchecked="BodyTypeRadio_Unchecked"
+                                                      Style="{StaticResource BodySegmentButtonStyle}" />
+                                        <ToggleButton x:Name="BodyBinaryRadio" Content="binary"
+                                                      Checked="BodyTypeRadio_Changed"
+                                                      Unchecked="BodyTypeRadio_Unchecked"
+                                                      Style="{StaticResource BodySegmentButtonStyle}" />
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                                HorizontalAlignment="Right" Spacing="6">
+                                        <!-- Raw format dropdown (visible only when raw selected) -->
+                                        <ComboBox x:Name="RawFormatComboBox"
+                                                  MinWidth="80"
+                                                  Visibility="Collapsed"
+                                                  SelectionChanged="RawFormatComboBox_SelectionChanged">
+                                            <ComboBoxItem Content="Text" Tag="Raw" IsSelected="True" />
+                                            <ComboBoxItem Content="JSON" Tag="Json" />
+                                            <ComboBoxItem Content="XML" Tag="Xml" />
+                                        </ComboBox>
+
+                                        <!-- Select file button (visible only when binary selected) -->
+                                        <Button x:Name="SelectFileButton"
+                                                Click="SelectBinaryFile_Click"
+                                                Visibility="Collapsed"
+                                                Padding="8,4">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <FontIcon Glyph="&#xE838;" FontSize="12" />
+                                                <TextBlock Text="选择文件" FontSize="12" />
+                                            </StackPanel>
+                                        </Button>
+                                        <TextBlock x:Name="BinaryFilePathText"
+                                                   Visibility="Collapsed"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="11"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   MaxWidth="200"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <!-- Body content area -->
+                            <Grid Grid.Row="1">
+                                <!-- Raw text editor -->
+                                <TextBox x:Name="BodyBox"
+                                         AcceptsReturn="True"
+                                         TextWrapping="NoWrap"
+                                         FontFamily="Consolas"
+                                         BorderThickness="0"
+                                         Background="Transparent"
+                                         MinHeight="120"
+                                         VerticalAlignment="Stretch"
+                                         HorizontalAlignment="Stretch"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                         PlaceholderText="JSON / 文本 / WebSocket 消息 / gRPC JSON 请求体"
+                                         TextChanged="Editor_TextChanged" />
+
+                                <!-- form-data key-value table -->
+                                <controls:KeyValueTable x:Name="FormDataTable"
+                                                        Visibility="Collapsed" />
+
+                                <!-- x-www-form-urlencoded key-value table -->
+                                <controls:KeyValueTable x:Name="UrlEncodedTable"
+                                                        Visibility="Collapsed" />
+
+                                <!-- Binary file info panel -->
+                                <StackPanel x:Name="BinaryInfoPanel"
+                                            Visibility="Collapsed"
+                                            VerticalAlignment="Top"
+                                            Padding="12,8"
+                                            Spacing="8">
+                                    <TextBlock Text="选择要发送的文件：" FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <Button Click="SelectBinaryFile_Click" Padding="12,6">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <FontIcon Glyph="&#xE838;" FontSize="14" />
+                                            <TextBlock Text="浏览文件..." />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </TabViewItem>
+                </TabView>
+            </Border>
+
+            <!-- Row 4: Response summary bar -->
+            <Border Grid.Row="4" Padding="4,4,4,0">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ResponseSummaryText"
+                               Text="响应"
+                               Style="{ThemeResource BodyStrongTextBlockStyle}"
+                               VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                        <Button x:Name="CancelSendButton"
+                                Click="CancelSendButton_Click"
+                                Visibility="Collapsed"
+                                ToolTipService.ToolTip="取消当前请求">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon Glyph="&#xE711;" FontSize="12" />
+                                <TextBlock Text="取消" FontSize="12" />
+                            </StackPanel>
+                        </Button>
+                        <Button Click="FormatResponseJsonButton_Click"
+                                ToolTipService.ToolTip="格式化响应 Body JSON">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon Glyph="&#xE943;" FontSize="12" />
+                                <TextBlock Text="格式化响应" FontSize="12" />
+                            </StackPanel>
+                        </Button>
+                        <ProgressRing x:Name="SendProgressRing"
+                                      Width="20"
+                                      Height="20"
+                                      IsActive="False"
+                                      Visibility="Collapsed" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Row 5: Response tabs (card with RichTextBlock for JSON highlighting) -->
+            <Border Grid.Row="5" Style="{StaticResource SectionCardStyle}" Padding="4">
+                <TabView IsAddTabButtonVisible="False" CanDragTabs="False">
+                    <TabViewItem Header="Body" IsClosable="False">
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollMode="Auto"
+                                      VerticalScrollMode="Auto">
+                            <RichTextBlock x:Name="ResponseBodyRichTextBlock"
+                                           FontFamily="Consolas"
+                                           FontSize="13"
+                                           IsTextSelectionEnabled="True"
+                                           TextWrapping="NoWrap"
+                                           Padding="8,6" />
+                        </ScrollViewer>
+                    </TabViewItem>
+                    <TabViewItem Header="Headers" IsClosable="False">
+                        <TextBox x:Name="ResponseHeadersBox"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 TextWrapping="NoWrap"
+                                 FontFamily="Consolas"
+                                 BorderThickness="0"
+                                 Background="Transparent" />
+                    </TabViewItem>
+                </TabView>
+            </Border>
         </Grid>
+
+        <!-- Popup host for {{variable}} autocomplete overlays (must be last child for z-order) -->
+        <Grid x:Name="AutoCompleteHost" Grid.ColumnSpan="3" />
     </Grid>
 </Page>

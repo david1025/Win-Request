@@ -32,8 +32,37 @@ public sealed class RequestExecutionService
         {
             using var message = new HttpRequestMessage(new HttpMethod(request.Method), RequestHelpers.BuildUrl(request));
 
-            if (!string.IsNullOrWhiteSpace(request.Body) && request.Method is not "GET" and not "HEAD")
+            if (!string.IsNullOrWhiteSpace(request.Body) && request.Method is not "GET" and not "HEAD"
+                && request.BodyType is not ApiBodyType.FormData
+                and not ApiBodyType.XWwwFormUrlencoded
+                and not ApiBodyType.Binary)
                 message.Content = new StringContent(request.Body, Encoding.UTF8, GuessContentType(request));
+
+            if (request.BodyType == ApiBodyType.FormData && request.Method is not "GET" and not "HEAD")
+            {
+                var formContent = new MultipartFormDataContent();
+                foreach (var field in request.FormData.Where(x => x.Enabled && !string.IsNullOrWhiteSpace(x.Key)))
+                    formContent.Add(new StringContent(field.Value ?? ""), field.Key);
+                message.Content = formContent;
+            }
+
+            if (request.BodyType == ApiBodyType.XWwwFormUrlencoded && request.Method is not "GET" and not "HEAD")
+            {
+                var pairs = request.UrlEncodedData
+                    .Where(x => x.Enabled && !string.IsNullOrWhiteSpace(x.Key))
+                    .Select(x => new KeyValuePair<string, string>(x.Key, x.Value ?? ""));
+                message.Content = new FormUrlEncodedContent(pairs);
+            }
+
+            if (request.BodyType == ApiBodyType.Binary && request.Method is not "GET" and not "HEAD"
+                && !string.IsNullOrWhiteSpace(request.BinaryFilePath) && System.IO.File.Exists(request.BinaryFilePath))
+            {
+                byte[] fileBytes = await System.IO.File.ReadAllBytesAsync(request.BinaryFilePath, cancellationToken);
+                string fileName = System.IO.Path.GetFileName(request.BinaryFilePath);
+                message.Content = new ByteArrayContent(fileBytes);
+                message.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+                message.Content.Headers.ContentDisposition = new System.Net.Http.Headers.ContentDispositionHeaderValue("form-data") { FileName = fileName };
+            }
 
             foreach (var header in request.Headers.Where(x => x.Enabled && !string.IsNullOrWhiteSpace(x.Key)))
             {
@@ -183,13 +212,31 @@ public sealed class RequestExecutionService
 
     private static string GuessContentType(ApiRequest request)
     {
-        string header = request.Headers.FirstOrDefault(x =>
-            x.Enabled && string.Equals(x.Key, "Content-Type", StringComparison.OrdinalIgnoreCase)).Value;
-        if (!string.IsNullOrWhiteSpace(header))
-            return header;
+        // Check explicit Content-Type header first
+        var contentTypeHeader = request.Headers.FirstOrDefault(x =>
+            x.Enabled && string.Equals(x.Key, "Content-Type", StringComparison.OrdinalIgnoreCase));
+        if (contentTypeHeader != null && !string.IsNullOrWhiteSpace(contentTypeHeader.Value))
+            return contentTypeHeader.Value;
 
-        string body = request.Body.TrimStart();
-        return body.StartsWith('{') || body.StartsWith('[') ? "application/json" : "text/plain";
+        // Use BodyType to determine content type
+        return request.BodyType switch
+        {
+            ApiBodyType.Json => "application/json",
+            ApiBodyType.Xml => "application/xml",
+            ApiBodyType.FormData => "multipart/form-data",
+            ApiBodyType.XWwwFormUrlencoded => "application/x-www-form-urlencoded",
+            ApiBodyType.Raw => "text/plain",
+            ApiBodyType.Binary => "application/octet-stream",
+            _ => GuessContentTypeFromBody(request.Body)
+        };
+    }
+
+    private static string GuessContentTypeFromBody(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            return "text/plain";
+        string trimmed = body.TrimStart();
+        return trimmed.StartsWith('{') || trimmed.StartsWith('[') ? "application/json" : "text/plain";
     }
 
     private static string DecodeBody(byte[] body, string? charset)
