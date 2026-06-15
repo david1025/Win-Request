@@ -393,12 +393,38 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Grid Grid.Row="0">
+            <Border Grid.Row="0"
+                    Style="{StaticResource PanelBorderStyle}"
+                    Padding="8,5">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="NameBox"
+                             PlaceholderText="Request name"
+                             TextChanged="Editor_TextChanged"
+                             Height="32"
+                             VerticalAlignment="Center" />
+                    <Button Grid.Column="1"
+                            Click="FormatRequestJsonButton_Click"
+                            ToolTipService.ToolTip="Format request Body JSON"
+                            Height="32">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <FontIcon Glyph="&#xE943;" FontSize="12" />
+                            <TextBlock Text="Format JSON" FontSize="12" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -419,13 +445,13 @@
                 </Button>
             </Grid>
 
-            <Border Grid.Row="1"
+            <Border Grid.Row="2"
                     Style="{StaticResource PanelBorderStyle}"
                     Padding="8,7">
                 <Grid ColumnSpacing="8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="92" />
-                        <ColumnDefinition Width="0" />
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -451,8 +477,8 @@
                     <ComboBox x:Name="TypeComboBox"
                               Grid.Column="1"
                               SelectionChanged="TypeComboBox_SelectionChanged"
-                              Visibility="Collapsed"
-                              Height="34">
+                              Height="34"
+                              MinWidth="80">
                         <ComboBoxItem Content="HTTP" Tag="Http" IsSelected="True" />
                         <ComboBoxItem Content="gRPC" Tag="Grpc" />
                         <ComboBoxItem Content="WebSocket" Tag="WebSocket" />
@@ -488,7 +514,7 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Row="2"
+            <Border Grid.Row="3"
                     Style="{StaticResource PanelBorderStyle}"
                     Padding="8,6,8,8">
                 <Grid RowSpacing="6">
@@ -503,12 +529,7 @@
                             <ColumnDefinition Width="180" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBox x:Name="NameBox"
-                                 PlaceholderText="Request name"
-                                 TextChanged="Editor_TextChanged"
-                                 Height="32" />
                         <TextBox x:Name="GrpcMethodBox"
                                  Grid.Column="1"
                                  PlaceholderText="gRPC service/method, e.g. helloworld.Greeter/SayHello"
@@ -520,15 +541,6 @@
                                   Checked="Editor_CheckChanged"
                                   Unchecked="Editor_CheckChanged"
                                   VerticalAlignment="Center" />
-                        <Button Grid.Column="3"
-                                Click="FormatRequestJsonButton_Click"
-                                ToolTipService.ToolTip="Format request Body JSON"
-                                Height="32">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <FontIcon Glyph="&#xE943;" FontSize="12" />
-                                <TextBlock Text="Format JSON" FontSize="12" />
-                            </StackPanel>
-                        </Button>
                     </Grid>
 
                     <TabView Grid.Row="1"
@@ -663,12 +675,12 @@
                 </Grid>
             </Border>
 
-            <ui:GridSplitter Grid.Row="3"
+            <ui:GridSplitter Grid.Row="4"
                              Height="7"
                              Background="#15000000"
                              HorizontalAlignment="Stretch" />
 
-            <Border Grid.Row="4"
+            <Border Grid.Row="5"
                     Style="{StaticResource PanelBorderStyle}"
                     Padding="8,7,8,8">
                 <Grid RowSpacing="8">

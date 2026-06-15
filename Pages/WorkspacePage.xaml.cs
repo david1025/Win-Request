@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Navigation;
 using Windows.Storage.Pickers;
 using WinRequest.Models;
 using WinRequest.Services;
@@ -29,6 +30,7 @@ public sealed partial class WorkspacePage : Page
     private bool _isLoadingEditor;
     private bool _isUpdatingTabs;
     private bool _isSyncingQueryUrl;
+    private bool _isNavigatingToSettings;
     private string _rightClickTabId = "";
     private VariableAutoComplete? _urlAutoComplete;
     private VariableAutoComplete? _bodyAutoComplete;
@@ -54,11 +56,27 @@ public sealed partial class WorkspacePage : Page
         Loaded += WorkspacePage_Loaded;
     }
 
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+
+        _isNavigatingToSettings = true;
+        MainNav.SelectedItem = CollectionsNavItem;
+        _isNavigatingToSettings = false;
+    }
+
     private void MainNav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
+        if (_isNavigatingToSettings)
+            return;
+
         if (args.IsSettingsSelected)
         {
-            SelectSidebarSection("settings");
+            _isNavigatingToSettings = true;
+            // Hide all sidebar panels — settings uses the full content area
+            SelectSidebarSection("");
+            Frame.Navigate(typeof(SettingsPage));
+            _isNavigatingToSettings = false;
             return;
         }
         if (args.SelectedItem is not NavigationViewItem item)
@@ -78,15 +96,24 @@ public sealed partial class WorkspacePage : Page
             ["collections"] = CollectionsSidebarPanel,
             ["environments"] = EnvironmentsSidebarPanel,
             ["history"] = HistorySidebarPanel,
-            ["profile"] = ProfileSidebarPanel,
-            ["settings"] = SettingsSidebarPanel
+            ["profile"] = ProfileSidebarPanel
         };
 
-        if (!panelMap.ContainsKey(section))
+        // If section is empty or unknown, collapse all panels
+        if (string.IsNullOrEmpty(section) || !panelMap.ContainsKey(section))
+        {
+            foreach (var item in panelMap)
+                item.Value.Visibility = Visibility.Collapsed;
+            // Also collapse the legacy settings sidebar panel
+            SettingsSidebarPanel.Visibility = Visibility.Collapsed;
+            if (string.IsNullOrEmpty(section))
+                return;
             section = "collections";
+        }
 
         foreach (var item in panelMap)
             item.Value.Visibility = item.Key == section ? Visibility.Visible : Visibility.Collapsed;
+        SettingsSidebarPanel.Visibility = Visibility.Collapsed;
     }
 
     private async void WorkspacePage_Loaded(object sender, RoutedEventArgs e)
@@ -733,7 +760,36 @@ public sealed partial class WorkspacePage : Page
             _currentRequest.UrlEncodedData = UrlEncodedTable.GetItems();
     }
 
-    private void Editor_TextChanged(object sender, TextChangedEventArgs e) => ApplyEditor();
+    private void Editor_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        ApplyEditor();
+        UpdateCurrentTabHeader();
+    }
+
+    private void UpdateCurrentTabHeader()
+    {
+        if (_currentRequest == null)
+            return;
+
+        // Update the tab header text to reflect the current request name
+        foreach (object tab in OpenRequestTabView.TabItems)
+        {
+            if (tab is TabViewItem item &&
+                string.Equals(item.Tag?.ToString(), _currentRequest.Id, StringComparison.Ordinal))
+            {
+                item.Header = _currentRequest.Name;
+                break;
+            }
+        }
+
+        // Keep the tree node name in sync
+        if (_currentCollection != null)
+        {
+            var node = RequestHelpers.FindNodeById(_currentCollection.Nodes, _currentRequest.Id);
+            if (node != null)
+                node.Name = _currentRequest.Name;
+        }
+    }
 
     private void UrlBox_TextChanged(object sender, TextChangedEventArgs e)
     {

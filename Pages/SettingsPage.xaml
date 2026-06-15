@@ -5,9 +5,31 @@
     NavigationCacheMode="Required"
     Background="Transparent">
 
+    <Page.Resources>
+        <Style x:Key="GhostButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="MinWidth" Value="28" />
+            <Setter Property="MinHeight" Value="28" />
+        </Style>
+    </Page.Resources>
+
     <ScrollViewer>
-        <StackPanel Padding="28,20,28,28" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
-            <TextBlock Text="设置" Style="{ThemeResource TitleTextBlockStyle}" />
+        <StackPanel Padding="28,20,28,28" Spacing="20" HorizontalAlignment="Stretch">
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Button Click="BackButton_Click"
+                        Style="{ThemeResource GhostButtonStyle}"
+                        VerticalAlignment="Center"
+                        ToolTipService.ToolTip="返回工作区">
+                    <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                </Button>
+                <TextBlock Grid.Column="1" Text="设置" Style="{ThemeResource TitleTextBlockStyle}" VerticalAlignment="Center" />
+            </Grid>
 
             <Border Background="{StaticResource WorkbenchPanelBrush}"
                     BorderBrush="{StaticResource WorkbenchStrokeBrush}"
@@ -19,7 +41,7 @@
                     <Grid ColumnSpacing="12" RowSpacing="10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="160" />
-                            <ColumnDefinition Width="260" />
+                            <ColumnDefinition Width="*" MinWidth="200" MaxWidth="400" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -64,7 +86,7 @@
                     <Grid ColumnSpacing="12" RowSpacing="10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="160" />
-                            <ColumnDefinition Width="260" />
+                            <ColumnDefinition Width="*" MinWidth="200" MaxWidth="400" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>

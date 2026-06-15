@@ -108,4 +108,12 @@ public sealed partial class SettingsPage : Page
             ? item.Tag?.ToString() ?? "System"
             : "System";
     }
+
+    private void BackButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (Frame.CanGoBack)
+            Frame.GoBack();
+        else
+            Frame.Navigate(typeof(WorkspacePage));
+    }
 }
