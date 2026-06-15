@@ -15,25 +15,45 @@ public sealed partial class KeyValueTable : UserControl
     private Grid? _autoCompleteHostGrid;
     private readonly List<VariableAutoComplete> _autoCompletes = new();
 
+    public static readonly DependencyProperty KeyPlaceholderTextProperty =
+        DependencyProperty.Register(nameof(KeyPlaceholderText), typeof(string), typeof(KeyValueTable), new PropertyMetadata("Key"));
+
+    public static readonly DependencyProperty ValuePlaceholderTextProperty =
+        DependencyProperty.Register(nameof(ValuePlaceholderText), typeof(string), typeof(KeyValueTable), new PropertyMetadata("Value"));
+
+    public static readonly DependencyProperty DescriptionPlaceholderTextProperty =
+        DependencyProperty.Register(nameof(DescriptionPlaceholderText), typeof(string), typeof(KeyValueTable), new PropertyMetadata("Description"));
+
     public KeyValueTable()
     {
         InitializeComponent();
     }
 
-    /// <summary>Raised whenever the user edits a key, value, enabled checkbox, or deletes a row.</summary>
     public event EventHandler? ItemsChanged;
 
-    /// <summary>
-    /// Enable {{variable}} autocomplete on Value fields.
-    /// Call once after InitializeComponent with a function that returns current variable names.
-    /// </summary>
+    public string KeyPlaceholderText
+    {
+        get => (string)GetValue(KeyPlaceholderTextProperty);
+        set => SetValue(KeyPlaceholderTextProperty, value);
+    }
+
+    public string ValuePlaceholderText
+    {
+        get => (string)GetValue(ValuePlaceholderTextProperty);
+        set => SetValue(ValuePlaceholderTextProperty, value);
+    }
+
+    public string DescriptionPlaceholderText
+    {
+        get => (string)GetValue(DescriptionPlaceholderTextProperty);
+        set => SetValue(DescriptionPlaceholderTextProperty, value);
+    }
+
     public void EnableVariableAutoComplete(Grid hostGrid, Func<List<string>> getVariableNames)
     {
         _autoCompleteHostGrid = hostGrid;
         _variableNamesProvider = getVariableNames;
     }
-
-    // ── Public API ──────────────────────────────────────────────────
 
     public void SetItems(IEnumerable<KeyValuePairItem> items)
     {
@@ -42,11 +62,10 @@ public sealed partial class KeyValueTable : UserControl
         DisposeAutoCompletes();
 
         foreach (var item in items)
-            AddRow(item.Enabled, item.Key, item.Value);
+            AddRow(item.Enabled, item.Key, item.Value, item.Description);
 
-        // Always leave at least one empty row for convenience
         if (RowsPanel.Children.Count == 0)
-            AddRow(true, "", "");
+            AddRow(true, "", "", "");
 
         _suppressChanged = false;
     }
@@ -62,6 +81,7 @@ public sealed partial class KeyValueTable : UserControl
             var checkBox = FindChild<CheckBox>(row, "RowCheckBox");
             var keyBox = FindChild<TextBox>(row, "RowKeyBox");
             var valueBox = FindChild<TextBox>(row, "RowValueBox");
+            var descriptionBox = FindChild<TextBox>(row, "RowDescriptionBox");
 
             if (keyBox == null)
                 continue;
@@ -74,66 +94,50 @@ public sealed partial class KeyValueTable : UserControl
             {
                 Key = key,
                 Value = valueBox?.Text ?? "",
+                Description = descriptionBox?.Text ?? "",
                 Enabled = checkBox?.IsChecked ?? true
             });
         }
         return result;
     }
 
-    // ── Row factory ─────────────────────────────────────────────────
-
-    private void AddRow(bool enabled, string key, string value)
+    private void AddRow(bool enabled, string key, string value, string description)
     {
-        var row = new Grid { ColumnSpacing = 6 };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
+        var row = new Grid
+        {
+            ColumnSpacing = 0,
+            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White),
+            BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["WorkbenchSubtleStrokeBrush"],
+            BorderThickness = new Thickness(0, 0, 0, 1)
+        };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
 
         var checkBox = new CheckBox
         {
             Name = "RowCheckBox",
             IsChecked = enabled,
-            MinWidth = 0,
-            MinHeight = 0,
-            Margin = new Thickness(6, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center
+            Style = (Style)Resources["CellCheckBoxStyle"]
         };
         checkBox.Checked += Row_FieldChanged;
         checkBox.Unchecked += Row_FieldChanged;
         Grid.SetColumn(checkBox, 0);
 
-        var keyBox = new TextBox
-        {
-            Name = "RowKeyBox",
-            Text = key,
-            PlaceholderText = "Key",
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
-            FontSize = 13,
-            Padding = new Thickness(6, 4, 6, 4),
-            MinHeight = 32,
-            BorderThickness = new Thickness(1),
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        var keyBox = CreateCellTextBox("RowKeyBox", key, KeyPlaceholderText, true);
         keyBox.TextChanged += Row_FieldChanged;
         Grid.SetColumn(keyBox, 1);
 
-        var valueBox = new TextBox
-        {
-            Name = "RowValueBox",
-            Text = value,
-            PlaceholderText = "Value",
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
-            FontSize = 13,
-            Padding = new Thickness(6, 4, 6, 4),
-            MinHeight = 32,
-            BorderThickness = new Thickness(1),
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        var valueBox = CreateCellTextBox("RowValueBox", value, ValuePlaceholderText, true);
         valueBox.TextChanged += Row_FieldChanged;
         Grid.SetColumn(valueBox, 2);
 
-        // Attach {{variable}} autocomplete to value box when provider is set
+        var descriptionBox = CreateCellTextBox("RowDescriptionBox", description, DescriptionPlaceholderText, false);
+        descriptionBox.TextChanged += Row_FieldChanged;
+        Grid.SetColumn(descriptionBox, 3);
+
         if (_variableNamesProvider != null && _autoCompleteHostGrid != null)
         {
             var ac = new VariableAutoComplete(valueBox, _autoCompleteHostGrid, _variableNamesProvider);
@@ -142,27 +146,42 @@ public sealed partial class KeyValueTable : UserControl
 
         var deleteButton = new Button
         {
-            Padding = new Thickness(6, 4, 6, 4),
-            MinWidth = 32,
-            MinHeight = 32,
+            Padding = new Thickness(4, 2, 4, 2),
+            MinWidth = 28,
+            MinHeight = 28,
             Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent),
             BorderThickness = new Thickness(0),
             VerticalAlignment = VerticalAlignment.Center
         };
         deleteButton.Content = new FontIcon { Glyph = "\uE74D", FontSize = 11 };
         deleteButton.Click += DeleteRow_Click;
-        ToolTipService.SetToolTip(deleteButton, "删除");
-        Grid.SetColumn(deleteButton, 3);
+        ToolTipService.SetToolTip(deleteButton, "Delete");
+        Grid.SetColumn(deleteButton, 4);
 
         row.Children.Add(checkBox);
         row.Children.Add(keyBox);
         row.Children.Add(valueBox);
+        row.Children.Add(descriptionBox);
         row.Children.Add(deleteButton);
 
         RowsPanel.Children.Add(row);
     }
 
-    // ── Event handlers ──────────────────────────────────────────────
+    private TextBox CreateCellTextBox(string name, string text, string placeholder, bool mono)
+    {
+        var textBox = new TextBox
+        {
+            Name = name,
+            Text = text,
+            PlaceholderText = placeholder,
+            Style = (Style)Resources["CellTextBoxStyle"]
+        };
+
+        if (mono)
+            textBox.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas");
+
+        return textBox;
+    }
 
     private void Row_FieldChanged(object sender, object e)
     {
@@ -175,7 +194,6 @@ public sealed partial class KeyValueTable : UserControl
         if (sender is not Button btn)
             return;
 
-        // Walk up to find the Grid row
         if (btn.Parent is Grid row)
             RowsPanel.Children.Remove(row);
 
@@ -191,18 +209,15 @@ public sealed partial class KeyValueTable : UserControl
 
     private void AddRow_Click(object sender, RoutedEventArgs e)
     {
-        AddRow(true, "", "");
+        AddRow(true, "", "", "");
         ItemsChanged?.Invoke(this, EventArgs.Empty);
 
-        // Focus the new key box
         if (RowsPanel.Children.LastOrDefault() is Grid lastRow)
         {
             var keyBox = FindChild<TextBox>(lastRow, "RowKeyBox");
             keyBox?.Focus(FocusState.Programmatic);
         }
     }
-
-    // ── Helper ──────────────────────────────────────────────────────
 
     private static T? FindChild<T>(DependencyObject parent, string name) where T : FrameworkElement
     {

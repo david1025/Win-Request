@@ -46,56 +46,62 @@ public sealed class WorkspaceStorage
 
     private static ApiWorkspace CreateDefaultWorkspace()
     {
+        var getUsers = new ApiRequest
+        {
+            Name = "Get Users - API v1",
+            Method = "GET",
+            Url = "https://api.example.com/v1/users?page=1",
+            Type = ApiRequestType.Http,
+            Query =
+            {
+                new KeyValuePairItem { Key = "page", Value = "1", Description = "Page number" },
+                new KeyValuePairItem { Key = "limit", Value = "20", Description = "Items per page" }
+            }
+        };
+
+        var updateProfile = new ApiRequest
+        {
+            Name = "Update Profile",
+            Method = "POST",
+            Url = "https://api.example.com/v1/profile",
+            Type = ApiRequestType.Http,
+            BodyType = ApiBodyType.Json,
+            Body = "{\r\n  \"name\": \"Jane Smith\"\r\n}"
+        };
+
         return new ApiWorkspace
         {
+            OpenRequestTabIds = { getUsers.Id, updateProfile.Id },
+            ActiveRequestTabId = getUsers.Id,
             EnvironmentVariables =
             {
-                new KeyValuePairItem { Key = "baseUrl", Value = "https://httpbin.org" }
+                new KeyValuePairItem { Key = "baseUrl", Value = "https://api.example.com", Description = "Default API host" }
             },
             Collections =
             {
                 new ApiCollection
                 {
-                    Name = "默认集合",
+                    Name = "My First API",
                     Nodes =
                     {
                         new CollectionNode
                         {
-                            Name = "示例 HTTP",
-                            IsFolder = false,
-                            Request = new ApiRequest
+                            Name = "User API",
+                            IsFolder = true,
+                            Children =
                             {
-                                Name = "示例 HTTP",
-                                Method = "GET",
-                                Url = "{{baseUrl}}/get",
-                                Type = ApiRequestType.Http
-                            }
-                        },
-                        new CollectionNode
-                        {
-                            Name = "示例 WebSocket",
-                            IsFolder = false,
-                            Request = new ApiRequest
-                            {
-                                Name = "示例 WebSocket",
-                                Method = "CONNECT",
-                                Url = "wss://echo.websocket.events",
-                                Type = ApiRequestType.WebSocket,
-                                Body = "hello"
-                            }
-                        },
-                        new CollectionNode
-                        {
-                            Name = "示例 gRPC",
-                            IsFolder = false,
-                            Request = new ApiRequest
-                            {
-                                Name = "示例 gRPC",
-                                Method = "POST",
-                                Url = "localhost:50051",
-                                Type = ApiRequestType.Grpc,
-                                GrpcMethod = "package.Service/Method",
-                                Body = "{}"
+                                new CollectionNode
+                                {
+                                    Name = getUsers.Name,
+                                    IsFolder = false,
+                                    Request = getUsers
+                                },
+                                new CollectionNode
+                                {
+                                    Name = updateProfile.Name,
+                                    IsFolder = false,
+                                    Request = updateProfile
+                                }
                             }
                         }
                     }

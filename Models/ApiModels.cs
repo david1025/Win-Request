@@ -34,7 +34,7 @@ public sealed class ApiWorkspace
 
 public sealed class AppSettings
 {
-    public string Theme { get; set; } = "System";
+    public string Theme { get; set; } = "Dark";
     public string FontFamily { get; set; } = "Consolas";
     public double TextSize { get; set; } = 13;
     public string GitHubOwner { get; set; } = "";
@@ -104,6 +104,7 @@ public sealed class KeyValuePairItem
 {
     public string Key { get; set; } = "";
     public string Value { get; set; } = "";
+    public string Description { get; set; } = "";
     public bool Enabled { get; set; } = true;
 }
 
@@ -196,15 +197,26 @@ public static class RequestHelpers
             Type = source.Type,
             Method = source.Method,
             Url = source.Url,
-            Headers = source.Headers.Select(x => new KeyValuePairItem { Key = x.Key, Value = x.Value, Enabled = x.Enabled }).ToList(),
-            Query = source.Query.Select(x => new KeyValuePairItem { Key = x.Key, Value = x.Value, Enabled = x.Enabled }).ToList(),
-            FormData = source.FormData.Select(x => new KeyValuePairItem { Key = x.Key, Value = x.Value, Enabled = x.Enabled }).ToList(),
-            UrlEncodedData = source.UrlEncodedData.Select(x => new KeyValuePairItem { Key = x.Key, Value = x.Value, Enabled = x.Enabled }).ToList(),
+            Headers = source.Headers.Select(ClonePair).ToList(),
+            Query = source.Query.Select(ClonePair).ToList(),
+            FormData = source.FormData.Select(ClonePair).ToList(),
+            UrlEncodedData = source.UrlEncodedData.Select(ClonePair).ToList(),
             Body = source.Body,
             BodyType = source.BodyType,
             GrpcMethod = source.GrpcMethod,
             GrpcUseTls = source.GrpcUseTls,
             BinaryFilePath = source.BinaryFilePath
+        };
+    }
+
+    private static KeyValuePairItem ClonePair(KeyValuePairItem source)
+    {
+        return new KeyValuePairItem
+        {
+            Key = source.Key,
+            Value = source.Value,
+            Description = source.Description,
+            Enabled = source.Enabled
         };
     }
 

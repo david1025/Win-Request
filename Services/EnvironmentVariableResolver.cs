@@ -24,6 +24,7 @@ public static partial class EnvironmentVariableResolver
             {
                 Key = ReplaceTokens(x.Key, map),
                 Value = ReplaceTokens(x.Value, map),
+                Description = x.Description,
                 Enabled = x.Enabled
             })
             .ToList();
@@ -32,6 +33,7 @@ public static partial class EnvironmentVariableResolver
             {
                 Key = ReplaceTokens(x.Key, map),
                 Value = ReplaceTokens(x.Value, map),
+                Description = x.Description,
                 Enabled = x.Enabled
             })
             .ToList();
@@ -40,6 +42,7 @@ public static partial class EnvironmentVariableResolver
             {
                 Key = ReplaceTokens(x.Key, map),
                 Value = ReplaceTokens(x.Value, map),
+                Description = x.Description,
                 Enabled = x.Enabled
             })
             .ToList();

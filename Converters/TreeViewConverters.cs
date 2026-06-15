@@ -33,15 +33,15 @@ public sealed class InverseBoolToVisibilityConverter : IValueConverter
 /// </summary>
 public sealed class MethodToBrushConverter : IValueConverter
 {
-    private static readonly SolidColorBrush Get = new(Microsoft.UI.Colors.Green);
-    private static readonly SolidColorBrush Post = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0xCA, 0x8A, 0x04));
+    private static readonly SolidColorBrush Get = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x16, 0xA3, 0x4A));
+    private static readonly SolidColorBrush Post = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0xD9, 0x77, 0x06));
     private static readonly SolidColorBrush Put = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x25, 0x63, 0xEB));
     private static readonly SolidColorBrush Delete = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0xDC, 0x26, 0x26));
     private static readonly SolidColorBrush Patch = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x93, 0x33, 0xEA));
-    private static readonly SolidColorBrush Head = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x6B, 0x72, 0x80));
-    private static readonly SolidColorBrush Options = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x6B, 0x72, 0x80));
-    private static readonly SolidColorBrush Connect = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x6B, 0x72, 0x80));
-    private static readonly SolidColorBrush Default = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x6B, 0x72, 0x80));
+    private static readonly SolidColorBrush Head = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x64, 0x74, 0x8B));
+    private static readonly SolidColorBrush Options = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x64, 0x74, 0x8B));
+    private static readonly SolidColorBrush Connect = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x64, 0x74, 0x8B));
+    private static readonly SolidColorBrush Default = new(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x64, 0x74, 0x8B));
 
     public object Convert(object value, System.Type targetType, object parameter, string language)
     {

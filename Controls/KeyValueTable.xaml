@@ -3,40 +3,228 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <Grid>
+    <UserControl.Resources>
+        <!-- ── Cell CheckBox style: centers the check square vertically ── -->
+        <Style x:Key="CellCheckBoxStyle" TargetType="CheckBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{ThemeResource CheckBoxForegroundUnchecked}" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid Background="{TemplateBinding Background}">
+                            <Border x:Name="NormalRectangle"
+                                    Width="20" Height="20"
+                                    Background="{ThemeResource CheckBoxCheckBackgroundStrokeUnchecked}"
+                                    BorderBrush="{ThemeResource CheckBoxCheckBackgroundStrokeUnchecked}"
+                                    BorderThickness="1"
+                                    CornerRadius="3"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center">
+                                <FontIcon x:Name="CheckGlyph"
+                                          FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                          Glyph="&#xE73E;"
+                                          FontSize="12"
+                                          Foreground="{ThemeResource CheckBoxCheckGlyphForegroundUnchecked}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Opacity="0" />
+                            </Border>
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CheckStates">
+                                    <VisualState x:Name="Unchecked" />
+                                    <VisualState x:Name="Checked">
+                                        <Storyboard>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="NormalRectangle" Storyboard.TargetProperty="Background">
+                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource CheckBoxCheckBackgroundFillChecked}" />
+                                            </ObjectAnimationUsingKeyFrames>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="NormalRectangle" Storyboard.TargetProperty="BorderBrush">
+                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource CheckBoxCheckBackgroundFillChecked}" />
+                                            </ObjectAnimationUsingKeyFrames>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CheckGlyph" Storyboard.TargetProperty="Foreground">
+                                                <DiscreteObjectKeyFrame KeyTime="0" Value="White" />
+                                            </ObjectAnimationUsingKeyFrames>
+                                            <DoubleAnimation Storyboard.TargetName="CheckGlyph" Storyboard.TargetProperty="Opacity" To="1" Duration="0" />
+                                        </Storyboard>
+                                    </VisualState>
+                                    <VisualState x:Name="Indeterminate">
+                                        <Storyboard>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="NormalRectangle" Storyboard.TargetProperty="Background">
+                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource CheckBoxCheckBackgroundFillIndeterminate}" />
+                                            </ObjectAnimationUsingKeyFrames>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CheckGlyph" Storyboard.TargetProperty="Foreground">
+                                                <DiscreteObjectKeyFrame KeyTime="0" Value="White" />
+                                            </ObjectAnimationUsingKeyFrames>
+                                            <DoubleAnimation Storyboard.TargetName="CheckGlyph" Storyboard.TargetProperty="Opacity" To="1" Duration="0" />
+                                        </Storyboard>
+                                    </VisualState>
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ── Cell TextBox style: removes header/footer, uses natural TextBox height ── -->
+        <Style x:Key="CellTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Foreground" Value="{ThemeResource TextControlForeground}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="8,8,8,6" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Grid>
+                            <Border x:Name="BorderElement"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="{TemplateBinding CornerRadius}"
+                                    MinHeight="{TemplateBinding MinHeight}">
+                                <ScrollViewer x:Name="ContentElement"
+                                              Margin="{TemplateBinding BorderThickness}"
+                                              Padding="{TemplateBinding Padding}"
+                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              IsTabStop="False"
+                                              AutomationProperties.AccessibilityView="Raw" />
+                            </Border>
+                            <TextBlock x:Name="PlaceholderTextContentPresenter"
+                                       Text="{TemplateBinding PlaceholderText}"
+                                       Foreground="{ThemeResource TextControlPlaceholderForeground}"
+                                       Padding="{TemplateBinding Padding}"
+                                       FontFamily="{TemplateBinding FontFamily}"
+                                       FontSize="{TemplateBinding FontSize}"
+                                       FontStyle="{TemplateBinding FontStyle}"
+                                       FontWeight="{TemplateBinding FontWeight}"
+                                       IsHitTestVisible="False"
+                                       VerticalAlignment="Center" />
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Normal" />
+                                    <VisualState x:Name="PointerOver">
+                                        <Storyboard>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BorderElement" Storyboard.TargetProperty="Background">
+                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TextControlBackgroundPointerOver}" />
+                                            </ObjectAnimationUsingKeyFrames>
+                                        </Storyboard>
+                                    </VisualState>
+                                    <VisualState x:Name="Focused">
+                                        <Storyboard>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BorderElement" Storyboard.TargetProperty="Background">
+                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TextControlBackgroundFocused}" />
+                                            </ObjectAnimationUsingKeyFrames>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BorderElement" Storyboard.TargetProperty="BorderBrush">
+                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TextControlBorderBrushFocused}" />
+                                            </ObjectAnimationUsingKeyFrames>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BorderElement" Storyboard.TargetProperty="BorderThickness">
+                                                <DiscreteObjectKeyFrame KeyTime="0" Value="0,0,0,2" />
+                                            </ObjectAnimationUsingKeyFrames>
+                                        </Storyboard>
+                                    </VisualState>
+                                    <VisualState x:Name="Disabled">
+                                        <Storyboard>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BorderElement" Storyboard.TargetProperty="Background">
+                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TextControlBackgroundDisabled}" />
+                                            </ObjectAnimationUsingKeyFrames>
+                                        </Storyboard>
+                                    </VisualState>
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="Transparent">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Column Headers -->
-        <Grid Padding="0,2,0,4" ColumnSpacing="6" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-              BorderThickness="0,0,0,1" Margin="0,0,0,4">
+        <Grid Padding="0"
+              ColumnSpacing="0"
+              Background="#FFE8EBF0"
+              BorderBrush="{StaticResource WorkbenchSubtleStrokeBrush}"
+              BorderThickness="1"
+              CornerRadius="6,6,0,0"
+              MinHeight="32">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="32" />
+                <ColumnDefinition Width="30" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="36" />
+                <ColumnDefinition Width="1.2*" />
+                <ColumnDefinition Width="30" />
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="1" Text="Key" FontSize="12" FontWeight="SemiBold"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="4,0" />
-            <TextBlock Grid.Column="2" Text="Value" FontSize="12" FontWeight="SemiBold"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="4,0" />
+
+            <TextBlock Grid.Column="0"
+                       Text="#"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1"
+                       Text="Key"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       VerticalAlignment="Center"
+                       Padding="8,7" />
+            <TextBlock Grid.Column="2"
+                       Text="Value"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       VerticalAlignment="Center"
+                       Padding="8,7" />
+            <TextBlock Grid.Column="3"
+                       Text="Description"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       VerticalAlignment="Center"
+                       Padding="8,7" />
         </Grid>
 
-        <!-- Rows -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel x:Name="RowsPanel" Spacing="3" />
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      BorderBrush="{StaticResource WorkbenchSubtleStrokeBrush}"
+                      BorderThickness="1,0,1,1"
+                      Background="White">
+            <StackPanel x:Name="RowsPanel" Spacing="0" />
         </ScrollViewer>
 
-        <!-- Add Button -->
-        <Button Grid.Row="2" Click="AddRow_Click" HorizontalAlignment="Stretch"
-                Margin="0,4,0,0" Padding="4,5"
-                Style="{ThemeResource DateTimePickerFlyoutButtonStyle}">
+        <Button Grid.Row="2"
+                Click="AddRow_Click"
+                HorizontalAlignment="Stretch"
+                Margin="0,5,0,0"
+                Padding="4,6"
+                Background="Transparent"
+                BorderBrush="{StaticResource WorkbenchSubtleStrokeBrush}"
+                BorderThickness="1"
+                CornerRadius="6">
             <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
                 <FontIcon Glyph="&#xE710;" FontSize="11" />
-                <TextBlock Text="添加" FontSize="12" />
+                <TextBlock Text="Add row" FontSize="12" />
             </StackPanel>
         </Button>
     </Grid>

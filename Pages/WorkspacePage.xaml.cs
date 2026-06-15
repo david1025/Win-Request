@@ -36,6 +36,7 @@ public sealed partial class WorkspacePage : Page
     public WorkspacePage()
     {
         InitializeComponent();
+        MainNav.SelectedItem = CollectionsNavItem;
         HistoryListView.ItemsSource = _historyItems;
         HeadersTable.ItemsChanged += Table_ItemsChanged;
         QueryTable.ItemsChanged += Table_ItemsChanged;
@@ -51,6 +52,41 @@ public sealed partial class WorkspacePage : Page
         UrlEncodedTable.EnableVariableAutoComplete(AutoCompleteHost, GetEnvironmentVariableNames);
 
         Loaded += WorkspacePage_Loaded;
+    }
+
+    private void MainNav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    {
+        if (args.IsSettingsSelected)
+        {
+            SelectSidebarSection("settings");
+            return;
+        }
+        if (args.SelectedItem is not NavigationViewItem item)
+            return;
+        SelectSidebarSection(item.Tag?.ToString() ?? "collections");
+    }
+
+    private void OpenSettingsSidebarButton_Click(object sender, RoutedEventArgs e)
+    {
+        Frame.Navigate(typeof(SettingsPage));
+    }
+
+    private void SelectSidebarSection(string section)
+    {
+        var panelMap = new Dictionary<string, Grid>
+        {
+            ["collections"] = CollectionsSidebarPanel,
+            ["environments"] = EnvironmentsSidebarPanel,
+            ["history"] = HistorySidebarPanel,
+            ["profile"] = ProfileSidebarPanel,
+            ["settings"] = SettingsSidebarPanel
+        };
+
+        if (!panelMap.ContainsKey(section))
+            section = "collections";
+
+        foreach (var item in panelMap)
+            item.Value.Visibility = item.Key == section ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void WorkspacePage_Loaded(object sender, RoutedEventArgs e)
@@ -252,6 +288,7 @@ public sealed partial class WorkspacePage : Page
             return;
 
         ResponseSummaryText.Text = $"历史：{entry.DisplayText}";
+        SetResponseMetrics(entry.StatusCode?.ToString() ?? (entry.IsSuccess ? "OK" : "ERR"), entry.ElapsedMilliseconds, null, entry.IsSuccess);
         ResponseHeadersBox.Text = entry.ResponseHeaders;
         string body = JsonFormatService.TryFormat(entry.ResponseBody, out string formatted)
             ? formatted
@@ -608,6 +645,7 @@ public sealed partial class WorkspacePage : Page
         SendButton.IsEnabled = false;
         CancelSendButton.Visibility = Visibility.Visible;
         ResponseSummaryText.Text = "发送中...";
+        SetResponseMetrics(null, null, null, false);
         RichTextHelper.ApplyPlainText(ResponseBodyRichTextBlock, "");
         ResponseHeadersBox.Text = "";
 
@@ -626,6 +664,7 @@ public sealed partial class WorkspacePage : Page
                 : response.Body;
 
             ResponseSummaryText.Text = response.Summary;
+            SetResponseMetrics(response.StatusText, response.ElapsedMilliseconds, response.BodyBytes, response.IsSuccess);
             DisplayResponseBody(displayBody);
             ResponseHeadersBox.Text = response.Headers;
 
@@ -1050,6 +1089,28 @@ public sealed partial class WorkspacePage : Page
         SelectFileButton.Visibility = isBinary ? Visibility.Visible : Visibility.Collapsed;
         BinaryFilePathText.Visibility = (isBinary && !string.IsNullOrWhiteSpace(BinaryFilePathText.Text)) ? Visibility.Visible : Visibility.Collapsed;
         RawFormatComboBox.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void SetResponseMetrics(string? status, long? elapsedMilliseconds, long? bodyBytes, bool isSuccess)
+    {
+        ResponseStatusValueText.Text = string.IsNullOrWhiteSpace(status) ? "-" : status;
+        ResponseTimeValueText.Text = elapsedMilliseconds.HasValue ? $"{elapsedMilliseconds.Value} ms" : "-";
+        ResponseSizeValueText.Text = bodyBytes.HasValue ? FormatBytes(bodyBytes.Value) : "-";
+
+        ResponseStatusValueText.Foreground = isSuccess
+            ? (Brush)Application.Current.Resources["PositiveStatusBrush"]
+            : string.IsNullOrWhiteSpace(status)
+                ? new SolidColorBrush(Microsoft.UI.Colors.Gray)
+                : (Brush)Application.Current.Resources["DangerStatusBrush"];
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024)
+            return $"{bytes} B";
+        if (bytes < 1024 * 1024)
+            return $"{bytes / 1024d:0.#} KB";
+        return $"{bytes / 1024d / 1024d:0.#} MB";
     }
 
     private void DisplayResponseBody(string body)

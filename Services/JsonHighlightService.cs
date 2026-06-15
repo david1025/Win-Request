@@ -146,19 +146,21 @@ public static class JsonHighlightService
     {
         return (kind, isDark) switch
         {
-            (JsonTokenKind.PropertyName, true)  => Color.FromArgb(255, 156, 220, 254),
-            (JsonTokenKind.PropertyName, false) => Color.FromArgb(255, 0, 100, 200),
-            (JsonTokenKind.StringValue, true)   => Color.FromArgb(255, 206, 145, 120),
-            (JsonTokenKind.StringValue, false)  => Color.FromArgb(255, 163, 21, 21),
-            (JsonTokenKind.NumberValue, true)   => Color.FromArgb(255, 181, 206, 168),
-            (JsonTokenKind.NumberValue, false)  => Color.FromArgb(255, 9, 134, 134),
-            (JsonTokenKind.BooleanValue, true)  => Color.FromArgb(255, 86, 156, 214),
-            (JsonTokenKind.BooleanValue, false) => Color.FromArgb(255, 0, 0, 255),
-            (JsonTokenKind.NullValue, true)     => Color.FromArgb(255, 86, 156, 214),
-            (JsonTokenKind.NullValue, false)    => Color.FromArgb(255, 128, 0, 128),
-            (JsonTokenKind.Punctuation, true)   => Color.FromArgb(255, 212, 212, 212),
-            (JsonTokenKind.Punctuation, false)  => Color.FromArgb(255, 128, 128, 128),
-            _                                   => Color.FromArgb(255, 212, 212, 212),
+            // Dark theme
+            (JsonTokenKind.PropertyName, true)  => Color.FromArgb(255, 255, 167, 100),
+            (JsonTokenKind.StringValue, true)   => Color.FromArgb(255, 130, 220, 130),
+            (JsonTokenKind.NumberValue, true)   => Color.FromArgb(255, 130, 190, 255),
+            (JsonTokenKind.BooleanValue, true)  => Color.FromArgb(255, 200, 130, 255),
+            (JsonTokenKind.NullValue, true)     => Color.FromArgb(255, 200, 130, 255),
+            (JsonTokenKind.Punctuation, true)   => Color.FromArgb(255, 200, 200, 210),
+            // Light theme
+            (JsonTokenKind.PropertyName, false) => Color.FromArgb(255, 180, 90, 20),
+            (JsonTokenKind.StringValue, false)  => Color.FromArgb(255, 40, 140, 40),
+            (JsonTokenKind.NumberValue, false)  => Color.FromArgb(255, 9, 100, 180),
+            (JsonTokenKind.BooleanValue, false) => Color.FromArgb(255, 120, 40, 180),
+            (JsonTokenKind.NullValue, false)    => Color.FromArgb(255, 120, 40, 180),
+            (JsonTokenKind.Punctuation, false)  => Color.FromArgb(255, 80, 80, 90),
+            _                                   => Color.FromArgb(255, 80, 80, 90),
         };
     }
 }

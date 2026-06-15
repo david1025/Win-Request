@@ -7,6 +7,24 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- ── Light theme palette (Mica-friendly) ── -->
+            <SolidColorBrush x:Key="WorkbenchAppBrush" Color="#F0F3F6" />
+            <SolidColorBrush x:Key="WorkbenchRailBrush" Color="#FFFAFBFC" />
+            <SolidColorBrush x:Key="WorkbenchSidebarBrush" Color="#FFF5F6F8" />
+            <SolidColorBrush x:Key="WorkbenchSurfaceBrush" Color="#FFEAEDF1" />
+            <SolidColorBrush x:Key="WorkbenchPanelBrush" Color="#FFFFFFFF" />
+            <SolidColorBrush x:Key="WorkbenchPanelAltBrush" Color="#FFF8F9FA" />
+            <SolidColorBrush x:Key="WorkbenchControlBrush" Color="#FFFFFFFF" />
+            <SolidColorBrush x:Key="WorkbenchPanelHoverBrush" Color="#200066CC" />
+            <SolidColorBrush x:Key="WorkbenchStrokeBrush" Color="#1A000000" />
+            <SolidColorBrush x:Key="WorkbenchSubtleStrokeBrush" Color="#0F000000" />
+            <SolidColorBrush x:Key="WorkbenchAccentBrush" Color="#FF7C3A" />
+            <SolidColorBrush x:Key="WorkbenchAccentHoverBrush" Color="#FF9A5E" />
+            <SolidColorBrush x:Key="PositiveStatusBrush" Color="#16A34A" />
+            <SolidColorBrush x:Key="WarningStatusBrush" Color="#D97706" />
+            <SolidColorBrush x:Key="DangerStatusBrush" Color="#DC2626" />
+
         </ResourceDictionary>
     </Application.Resources>
 </Application>

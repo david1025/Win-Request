@@ -15,7 +15,6 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         ContentFrame.Navigate(typeof(WorkspacePage));
-        MainNav.SelectedItem = WorkspaceNavItem;
         _ = ApplySavedSettingsAsync();
     }
 
@@ -30,17 +29,5 @@ public sealed partial class MainWindow : Window
         catch
         {
         }
-    }
-
-    private void MainNav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
-    {
-        if (args.SelectedItem is not NavigationViewItem item)
-            return;
-
-        string tag = item.Tag?.ToString() ?? "";
-        if (tag == "settings")
-            ContentFrame.Navigate(typeof(SettingsPage));
-        else
-            ContentFrame.Navigate(typeof(WorkspacePage));
     }
 }
