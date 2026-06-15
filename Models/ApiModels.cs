@@ -300,4 +300,28 @@ public static class RequestHelpers
                 yield return child;
         }
     }
+
+    /// <summary>
+    /// Returns the ordered list of node names from root to the node (inclusive) that contains the given requestId.
+    /// For a request node the last entry is the request node itself; folders precede it.
+    /// Returns null if not found.
+    /// </summary>
+    public static List<string>? GetNodePath(List<CollectionNode> nodes, string requestId)
+    {
+        foreach (var node in nodes)
+        {
+            if (!node.IsFolder && node.Request?.Id == requestId)
+                return new List<string> { node.Name };
+            if (node.IsFolder)
+            {
+                var subPath = GetNodePath(node.Children, requestId);
+                if (subPath != null)
+                {
+                    subPath.Insert(0, node.Name);
+                    return subPath;
+                }
+            }
+        }
+        return null;
+    }
 }

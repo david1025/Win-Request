@@ -238,7 +238,7 @@
             </NavigationView.MenuItems>
 
             <Grid Background="{StaticResource WorkbenchSidebarBrush}">
-                <Grid x:Name="CollectionsSidebarPanel" Padding="4,48,8,10" RowSpacing="0">
+                <Grid x:Name="CollectionsSidebarPanel" Padding="4,8,8,10" RowSpacing="0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
@@ -302,7 +302,7 @@
 
                 <Grid x:Name="EnvironmentsSidebarPanel"
                       Visibility="Collapsed"
-                      Padding="10,48,8,10"
+                      Padding="10,8,8,10"
                       RowSpacing="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -322,7 +322,7 @@
 
                 <Grid x:Name="HistorySidebarPanel"
                       Visibility="Collapsed"
-                      Padding="10,48,8,10"
+                      Padding="10,8,8,10"
                       RowSpacing="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -341,7 +341,7 @@
 
                 <Grid x:Name="ProfileSidebarPanel"
                       Visibility="Collapsed"
-                      Padding="10,48,8,10"
+                      Padding="10,8,8,10"
                       RowSpacing="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -364,7 +364,7 @@
 
                 <Grid x:Name="SettingsSidebarPanel"
                       Visibility="Collapsed"
-                      Padding="10,48,8,10"
+                      Padding="10,8,8,10"
                       RowSpacing="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -389,7 +389,7 @@
 
         <ui:GridSplitter Grid.Column="1" Width="8" Background="Transparent" />
 
-        <Grid Grid.Column="2" Padding="10,0,10,10" RowSpacing="7">
+        <Grid x:Name="RequestEditorArea" Grid.Column="2" Padding="10,0,10,10" RowSpacing="7">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -399,32 +399,7 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Border Grid.Row="0"
-                    Style="{StaticResource PanelBorderStyle}"
-                    Padding="8,5">
-                <Grid ColumnSpacing="8">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="NameBox"
-                             PlaceholderText="Request name"
-                             TextChanged="Editor_TextChanged"
-                             Height="32"
-                             VerticalAlignment="Center" />
-                    <Button Grid.Column="1"
-                            Click="FormatRequestJsonButton_Click"
-                            ToolTipService.ToolTip="Format request Body JSON"
-                            Height="32">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <FontIcon Glyph="&#xE943;" FontSize="12" />
-                            <TextBlock Text="Format JSON" FontSize="12" />
-                        </StackPanel>
-                    </Button>
-                </Grid>
-            </Border>
-
-            <Grid Grid.Row="1">
+            <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -445,13 +420,103 @@
                 </Button>
             </Grid>
 
+            <!-- Breadcrumb bar: type switcher + path + editable name + format button -->
+            <Grid x:Name="BreadcrumbBar" Grid.Row="1" Padding="4,2" ColumnSpacing="6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Type badge button (click to switch type) -->
+                <Button x:Name="BreadcrumbTypeButton"
+                        Click="BreadcrumbTypeButton_Click"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="0"
+                        MinWidth="0"
+                        MinHeight="0">
+                    <Border x:Name="BreadcrumbTypeBadge"
+                            CornerRadius="4"
+                            Padding="8,4"
+                            Background="#16A34A">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock x:Name="BreadcrumbTypeText"
+                                       Text="HTTP"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Foreground="White" />
+                            <FontIcon Glyph="&#xE70D;" FontSize="9" Foreground="White" />
+                        </StackPanel>
+                    </Border>
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem Text="HTTP" Tag="Http" Click="BreadcrumbTypeItem_Click" />
+                            <MenuFlyoutItem Text="gRPC" Tag="Grpc" Click="BreadcrumbTypeItem_Click" />
+                            <MenuFlyoutItem Text="WebSocket" Tag="WebSocket" Click="BreadcrumbTypeItem_Click" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+
+                <!-- Collection / folder path (non-editable) -->
+                <TextBlock x:Name="BreadcrumbCollectionText"
+                           Grid.Column="1"
+                           Text=""
+                           FontSize="12"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           MaxWidth="220" />
+
+                <TextBlock x:Name="BreadcrumbSeparator"
+                           Text="/"
+                           Grid.Column="2"
+                           FontSize="12"
+                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                           VerticalAlignment="Center" />
+
+                <!-- Request name: TextBlock (click to edit) + hidden TextBox -->
+                <Grid Grid.Column="3">
+                    <TextBlock x:Name="BreadcrumbNameText"
+                               Text=""
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               Tapped="BreadcrumbNameText_Tapped"
+                               ToolTipService.ToolTip="Click to rename" />
+                    <TextBox x:Name="NameBox"
+                             FontSize="12"
+                             Height="26"
+                             Padding="4,2"
+                             Visibility="Collapsed"
+                             TextChanged="Editor_TextChanged"
+                             LostFocus="NameBox_LostFocus"
+                             KeyDown="NameBox_KeyDown" />
+                </Grid>
+
+                <!-- Format button -->
+                <Button Grid.Column="4"
+                        Click="FormatRequestJsonButton_Click"
+                        ToolTipService.ToolTip="Format request body (JSON / XML)"
+                        Style="{StaticResource GhostButtonStyle}"
+                        Height="28">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <FontIcon Glyph="&#xE943;" FontSize="12" />
+                        <TextBlock Text="Format" FontSize="12" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+
             <Border Grid.Row="2"
                     Style="{StaticResource PanelBorderStyle}"
                     Padding="8,7">
                 <Grid ColumnSpacing="8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="92" />
-                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -474,23 +539,22 @@
                         <ComboBoxItem Content="CONNECT" />
                     </ComboBox>
 
+                    <!-- Hidden TypeComboBox kept for data binding -->
                     <ComboBox x:Name="TypeComboBox"
-                              Grid.Column="1"
                               SelectionChanged="TypeComboBox_SelectionChanged"
-                              Height="34"
-                              MinWidth="80">
+                              Visibility="Collapsed">
                         <ComboBoxItem Content="HTTP" Tag="Http" IsSelected="True" />
                         <ComboBoxItem Content="gRPC" Tag="Grpc" />
                         <ComboBoxItem Content="WebSocket" Tag="WebSocket" />
                     </ComboBox>
 
                     <TextBox x:Name="UrlBox"
-                             Grid.Column="2"
+                             Grid.Column="1"
                              PlaceholderText="https://api.example.com/v1/users?page=1"
                              TextChanged="UrlBox_TextChanged"
                              Height="34" />
 
-                    <Button Grid.Column="3"
+                    <Button Grid.Column="2"
                             Click="SaveButton_Click"
                             ToolTipService.ToolTip="Save"
                             Style="{StaticResource GhostButtonStyle}"
@@ -500,7 +564,7 @@
                     </Button>
 
                     <Button x:Name="SendButton"
-                            Grid.Column="4"
+                            Grid.Column="3"
                             Click="SendButton_Click"
                             Style="{ThemeResource AccentButtonStyle}"
                             Padding="20,6"
@@ -638,7 +702,28 @@
                                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
                                              PlaceholderText="JSON / text / WebSocket message / gRPC JSON request body"
-                                             TextChanged="Editor_TextChanged" />
+                                             TextChanged="Editor_TextChanged"
+                                             GotFocus="BodyBox_GotFocus"
+                                             LostFocus="BodyBox_LostFocus" />
+
+                                    <!-- JSON highlighted preview overlay (shown when JSON format is selected and BodyBox has no focus) -->
+                                    <ScrollViewer x:Name="BodyHighlightScrollViewer"
+                                                  Visibility="Collapsed"
+                                                  HorizontalScrollBarVisibility="Auto"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollMode="Auto"
+                                                  VerticalScrollMode="Auto"
+                                                  Background="#FFF8F9FA"
+                                                  BorderThickness="1"
+                                                  BorderBrush="{StaticResource WorkbenchSubtleStrokeBrush}"
+                                                  PointerPressed="BodyHighlight_PointerPressed">
+                                        <RichTextBlock x:Name="BodyHighlightBlock"
+                                                       FontFamily="Consolas"
+                                                       FontSize="13"
+                                                       IsTextSelectionEnabled="True"
+                                                       TextWrapping="NoWrap"
+                                                       Padding="10,8" />
+                                    </ScrollViewer>
 
                                     <controls:KeyValueTable x:Name="FormDataTable" Visibility="Collapsed" />
                                     <controls:KeyValueTable x:Name="UrlEncodedTable" Visibility="Collapsed" />
@@ -696,7 +781,8 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="ResponseSummaryText"
                                    Text="Response"
-                                   Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
                                    VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1"
                                     Orientation="Horizontal"
@@ -768,7 +854,243 @@
                     </TabView>
                 </Grid>
             </Border>
+
+            <!-- WebSocket panel — covers body + response area when WebSocket type is selected -->
+            <Border x:Name="WebSocketPanel"
+                    Grid.Row="3"
+                    Grid.RowSpan="3"
+                    Visibility="Collapsed"
+                    Style="{StaticResource PanelBorderStyle}">
+                <Grid RowSpacing="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Connection status bar -->
+                    <Grid Padding="10,8" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Ellipse x:Name="WsStatusDot"
+                                     Width="10" Height="10"
+                                     Fill="#9CA3AF" />
+                            <TextBlock x:Name="WsStatusText"
+                                       Text="Disconnected"
+                                       FontSize="13"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBox x:Name="WsUrlBox"
+                                 Grid.Column="1"
+                                 PlaceholderText="ws://localhost:8080/ws"
+                                 FontFamily="Consolas"
+                                 FontSize="13"
+                                 Height="34"
+                                 TextChanged="WsUrlBox_TextChanged" />
+                        <Button x:Name="WsConnectButton"
+                                Grid.Column="2"
+                                Content="Connect"
+                                Click="WsConnectButton_Click"
+                                Style="{ThemeResource AccentButtonStyle}"
+                                Padding="16,6" />
+                        <Button x:Name="WsClearButton"
+                                Grid.Column="3"
+                                Click="WsClearButton_Click"
+                                ToolTipService.ToolTip="Clear messages"
+                                Style="{StaticResource GhostButtonStyle}">
+                            <FontIcon Glyph="&#xE74D;" FontSize="13" />
+                        </Button>
+                    </Grid>
+
+                    <!-- Message send area -->
+                    <Border Grid.Row="1"
+                            BorderBrush="{StaticResource WorkbenchSubtleStrokeBrush}"
+                            BorderThickness="0,1,0,1"
+                            Padding="8,6">
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="WsMessageBox"
+                                     PlaceholderText="Message to send (text or JSON)"
+                                     Height="34"
+                                     FontFamily="Consolas"
+                                     FontSize="13" />
+                            <Button Grid.Column="1"
+                                    Click="WsSendMessageButton_Click"
+                                    Style="{ThemeResource AccentButtonStyle}"
+                                    Padding="16,6"
+                                    Height="34">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE724;" FontSize="13" />
+                                    <TextBlock Text="Send" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <!-- Message log -->
+                    <ScrollViewer Grid.Row="2"
+                                  x:Name="WsMessageScrollViewer"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Auto"
+                                  Background="#FFF8F9FA"
+                                  Padding="10,8">
+                        <StackPanel x:Name="WsMessageList" Spacing="4" />
+                    </ScrollViewer>
+                </Grid>
+            </Border>
         </Grid>
+
+        <!-- Inline settings overlay spanning the full right column -->
+        <ScrollViewer x:Name="SettingsOverlayPanel"
+                      Grid.Column="2"
+                      Visibility="Collapsed"
+                      Background="Transparent">
+            <StackPanel Padding="28,12,28,28" Spacing="20" HorizontalAlignment="Stretch">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="SettingsBackButton"
+                            Click="SettingsBackButton_Click"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Padding="8,4"
+                            MinWidth="28"
+                            MinHeight="28"
+                            VerticalAlignment="Center"
+                            ToolTipService.ToolTip="返回工作区">
+                        <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                    </Button>
+                    <TextBlock Grid.Column="1" Text="设置" Style="{ThemeResource TitleTextBlockStyle}" VerticalAlignment="Center" />
+                </Grid>
+
+                <Border Background="{StaticResource WorkbenchPanelBrush}"
+                        BorderBrush="{StaticResource WorkbenchStrokeBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="20,16">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="外观" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                        <Grid ColumnSpacing="12" RowSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="*" MinWidth="200" MaxWidth="400" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="主题" VerticalAlignment="Center" />
+                            <ComboBox x:Name="InlineThemeComboBox" Grid.Column="1" SelectionChanged="InlineSettings_Changed">
+                                <ComboBoxItem Content="跟随系统" Tag="System" IsSelected="True" />
+                                <ComboBoxItem Content="浅色" Tag="Light" />
+                                <ComboBoxItem Content="深色" Tag="Dark" />
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="1" Text="编辑器字体" VerticalAlignment="Center" />
+                            <TextBox x:Name="InlineFontFamilyBox"
+                                     Grid.Row="1"
+                                     Grid.Column="1"
+                                     PlaceholderText="例如 Consolas / Cascadia Mono"
+                                     TextChanged="InlineSettingsText_Changed" />
+
+                            <TextBlock Grid.Row="2" Text="文字大小" VerticalAlignment="Center" />
+                            <NumberBox x:Name="InlineTextSizeBox"
+                                       Grid.Row="2"
+                                       Grid.Column="1"
+                                       Minimum="9"
+                                       Maximum="28"
+                                       SmallChange="1"
+                                       LargeChange="2"
+                                       ValueChanged="InlineTextSizeBox_ValueChanged" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Background="{StaticResource WorkbenchPanelBrush}"
+                        BorderBrush="{StaticResource WorkbenchStrokeBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="20,16">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="更新" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                        <Grid ColumnSpacing="12" RowSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="*" MinWidth="200" MaxWidth="400" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="GitHub Owner" VerticalAlignment="Center" />
+                            <TextBox x:Name="InlineGitHubOwnerBox"
+                                     Grid.Column="1"
+                                     PlaceholderText="例如 your-name"
+                                     TextChanged="InlineSettingsText_Changed" />
+
+                            <TextBlock Grid.Row="1" Text="Repository" VerticalAlignment="Center" />
+                            <TextBox x:Name="InlineGitHubRepositoryBox"
+                                     Grid.Row="1"
+                                     Grid.Column="1"
+                                     PlaceholderText="例如 Win-Request"
+                                     TextChanged="InlineSettingsText_Changed" />
+
+                            <Button Grid.Row="1"
+                                    Grid.Column="2"
+                                    Click="InlineCheckUpdateButton_Click"
+                                    Style="{ThemeResource AccentButtonStyle}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE895;" FontSize="13" />
+                                    <TextBlock Text="检查更新" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                        <ProgressRing x:Name="InlineUpdateProgressRing" Width="24" Height="24" IsActive="False" Visibility="Collapsed" />
+                        <TextBlock x:Name="InlineUpdateResultText"
+                                   TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Background="{StaticResource WorkbenchPanelBrush}"
+                        BorderBrush="{StaticResource WorkbenchStrokeBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="20,16">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="关于" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                        <TextBlock Text="Win Request" FontWeight="SemiBold" />
+                        <TextBlock Text="一个参考 Swell-SSH 技术框架实现的 WinUI 3 API 调试客户端。" TextWrapping="Wrap" />
+                        <TextBlock Text="当前功能包括 Collection、Swagger 导入、HTTP、gRPC、WebSocket、历史、环境变量、JSON 格式化、主题与字体设置。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </Border>
+
+                <Button Click="InlineSaveSettingsButton_Click"
+                        Style="{ThemeResource AccentButtonStyle}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE74E;" FontSize="13" />
+                        <TextBlock Text="保存设置" />
+                    </StackPanel>
+                </Button>
+
+                <TextBlock x:Name="InlineSettingsStatusText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+        </ScrollViewer>
 
         <Grid x:Name="AutoCompleteHost" Grid.ColumnSpan="3" />
     </Grid>

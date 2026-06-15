@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Storage.Pickers;
+using Windows.UI;
 using WinRequest.Models;
 using WinRequest.Services;
 
@@ -20,6 +21,7 @@ public sealed partial class WorkspacePage : Page
     private readonly WorkspaceStorage _storage = new();
     private readonly RequestExecutionService _executor = new();
     private readonly OpenApiImporter _importer = new();
+    private readonly GitHubUpdateService _updateService = new();
     private readonly ObservableCollection<RequestHistoryEntry> _historyItems = new();
     private ApiWorkspace _workspace = new();
     private ApiCollection? _currentCollection;
@@ -31,6 +33,7 @@ public sealed partial class WorkspacePage : Page
     private bool _isUpdatingTabs;
     private bool _isSyncingQueryUrl;
     private bool _isNavigatingToSettings;
+    private bool _isLoadingInlineSettings;
     private string _rightClickTabId = "";
     private VariableAutoComplete? _urlAutoComplete;
     private VariableAutoComplete? _bodyAutoComplete;
@@ -73,20 +76,20 @@ public sealed partial class WorkspacePage : Page
         if (args.IsSettingsSelected)
         {
             _isNavigatingToSettings = true;
-            // Hide all sidebar panels — settings uses the full content area
             SelectSidebarSection("");
-            Frame.Navigate(typeof(SettingsPage));
+            ShowInlineSettings();
             _isNavigatingToSettings = false;
             return;
         }
         if (args.SelectedItem is not NavigationViewItem item)
             return;
+        HideInlineSettings();
         SelectSidebarSection(item.Tag?.ToString() ?? "collections");
     }
 
     private void OpenSettingsSidebarButton_Click(object sender, RoutedEventArgs e)
     {
-        Frame.Navigate(typeof(SettingsPage));
+        ShowInlineSettings();
     }
 
     private void SelectSidebarSection(string section)
@@ -114,6 +117,109 @@ public sealed partial class WorkspacePage : Page
         foreach (var item in panelMap)
             item.Value.Visibility = item.Key == section ? Visibility.Visible : Visibility.Collapsed;
         SettingsSidebarPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowInlineSettings()
+    {
+        LoadInlineSettings();
+        RequestEditorArea.Visibility = Visibility.Collapsed;
+        SettingsOverlayPanel.Visibility = Visibility.Visible;
+    }
+
+    private void HideInlineSettings()
+    {
+        SettingsOverlayPanel.Visibility = Visibility.Collapsed;
+        RequestEditorArea.Visibility = Visibility.Visible;
+    }
+
+    private void LoadInlineSettings()
+    {
+        _isLoadingInlineSettings = true;
+        var settings = _workspace.Settings;
+        InlineFontFamilyBox.Text = settings.FontFamily;
+        InlineTextSizeBox.Value = settings.TextSize < 9 ? 13 : settings.TextSize;
+        InlineGitHubOwnerBox.Text = settings.GitHubOwner;
+        InlineGitHubRepositoryBox.Text = settings.GitHubRepository;
+        SelectInlineTheme(settings.Theme);
+        _isLoadingInlineSettings = false;
+    }
+
+    private void SelectInlineTheme(string theme)
+    {
+        foreach (ComboBoxItem item in InlineThemeComboBox.Items)
+        {
+            if (string.Equals(item.Tag?.ToString(), theme, StringComparison.OrdinalIgnoreCase))
+            {
+                InlineThemeComboBox.SelectedItem = item;
+                return;
+            }
+        }
+        InlineThemeComboBox.SelectedIndex = 0;
+    }
+
+    private void ApplyInlineSettings()
+    {
+        if (_isLoadingInlineSettings)
+            return;
+
+        if (InlineThemeComboBox == null || InlineFontFamilyBox == null || InlineTextSizeBox == null
+            || InlineGitHubOwnerBox == null || InlineGitHubRepositoryBox == null || _workspace?.Settings == null)
+            return;
+
+        _workspace.Settings.Theme = InlineThemeComboBox.SelectedItem is ComboBoxItem ti
+            ? ti.Tag?.ToString() ?? "System" : "System";
+        _workspace.Settings.FontFamily = string.IsNullOrWhiteSpace(InlineFontFamilyBox.Text)
+            ? "Consolas" : InlineFontFamilyBox.Text.Trim();
+        _workspace.Settings.TextSize = double.IsNaN(InlineTextSizeBox.Value) ? 13 : InlineTextSizeBox.Value;
+        _workspace.Settings.GitHubOwner = InlineGitHubOwnerBox.Text.Trim();
+        _workspace.Settings.GitHubRepository = InlineGitHubRepositoryBox.Text.Trim();
+        App.Current.ApplySettings(_workspace.Settings);
+    }
+
+    private void InlineSettings_Changed(object sender, SelectionChangedEventArgs e) => ApplyInlineSettings();
+    private void InlineSettingsText_Changed(object sender, TextChangedEventArgs e) => ApplyInlineSettings();
+    private void InlineTextSizeBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) => ApplyInlineSettings();
+
+    private async void InlineSaveSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyInlineSettings();
+        await _storage.SaveAsync(_workspace);
+        ApplyEditorFonts();
+        InlineSettingsStatusText.Text = "设置已保存。工作台编辑器会在打开或切换请求时使用新的字体设置。";
+    }
+
+    private async void InlineCheckUpdateButton_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyInlineSettings();
+        await _storage.SaveAsync(_workspace);
+        InlineUpdateProgressRing.Visibility = Visibility.Visible;
+        InlineUpdateProgressRing.IsActive = true;
+        InlineUpdateResultText.Text = "正在检查 GitHub 最新 Release...";
+
+        var result = await _updateService.CheckLatestReleaseAsync(
+            _workspace.Settings.GitHubOwner,
+            _workspace.Settings.GitHubRepository);
+
+        InlineUpdateProgressRing.IsActive = false;
+        InlineUpdateProgressRing.Visibility = Visibility.Collapsed;
+        if (result.IsSuccess)
+        {
+            string title = string.IsNullOrWhiteSpace(result.Name) ? result.TagName : $"{result.Name} ({result.TagName})";
+            InlineUpdateResultText.Text = $"最新版本：{title}\n发布时间：{result.PublishedAt}\n地址：{result.HtmlUrl}";
+        }
+        else
+        {
+            InlineUpdateResultText.Text = $"检查失败：{result.Message}";
+        }
+    }
+
+    private void SettingsBackButton_Click(object sender, RoutedEventArgs e)
+    {
+        _isNavigatingToSettings = true;
+        MainNav.SelectedItem = CollectionsNavItem;
+        _isNavigatingToSettings = false;
+        HideInlineSettings();
+        SelectSidebarSection("collections");
     }
 
     private async void WorkspacePage_Loaded(object sender, RoutedEventArgs e)
@@ -336,11 +442,13 @@ public sealed partial class WorkspacePage : Page
         UrlEncodedTable.SetItems(request.UrlEncodedData);
         BodyBox.Text = request.Body;
         BinaryFilePathText.Text = request.BinaryFilePath ?? "";
+        WsUrlBox.Text = request.Url;
         SelectBodyType(request.BodyType);
         SelectType(request.Type);
         SelectMethod(request.Method);
         UpdateTypeVisibility(request.Type);
         UpdateBodyVisibility();
+        UpdateBreadcrumb();
         _isLoadingEditor = false;
     }
 
@@ -372,11 +480,13 @@ public sealed partial class WorkspacePage : Page
         UrlEncodedTable.SetItems(Array.Empty<KeyValuePairItem>());
         BodyBox.Text = "";
         BinaryFilePathText.Text = "";
+        WsUrlBox.Text = "";
         SelectBodyType(ApiBodyType.None);
         SelectType(ApiRequestType.Http);
         SelectMethod("GET");
         UpdateTypeVisibility(ApiRequestType.Http);
         UpdateBodyVisibility();
+        UpdateBreadcrumb();
         _isLoadingEditor = false;
     }
 
@@ -736,7 +846,10 @@ public sealed partial class WorkspacePage : Page
 
         ApplyEditor();
         if (_currentRequest != null)
+        {
             UpdateTypeVisibility(_currentRequest.Type);
+            UpdateBreadcrumb();
+        }
     }
 
     private void MethodComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyEditor();
@@ -764,6 +877,8 @@ public sealed partial class WorkspacePage : Page
     {
         ApplyEditor();
         UpdateCurrentTabHeader();
+        if (ReferenceEquals(sender, NameBox))
+            UpdateBreadcrumb();
     }
 
     private void UpdateCurrentTabHeader()
@@ -1050,10 +1165,29 @@ public sealed partial class WorkspacePage : Page
 
     private void FormatRequestJsonButton_Click(object sender, RoutedEventArgs e)
     {
+        if (IsXmlBodyMode())
+        {
+            // Format as XML
+            if (XmlFormatService.TryFormat(BodyBox.Text, out string xmlFormatted))
+            {
+                BodyBox.Text = xmlFormatted;
+                ApplyEditor();
+                RefreshBodyHighlight();
+                ResponseSummaryText.Text = "请求 Body XML 已格式化";
+            }
+            else
+            {
+                ResponseSummaryText.Text = "请求 Body 不是有效 XML";
+            }
+            return;
+        }
+
+        // Format as JSON
         if (JsonFormatService.TryFormat(BodyBox.Text, out string formatted))
         {
             BodyBox.Text = formatted;
             ApplyEditor();
+            RefreshBodyHighlight();
             ResponseSummaryText.Text = "请求 Body JSON 已格式化";
         }
         else
@@ -1111,6 +1245,98 @@ public sealed partial class WorkspacePage : Page
         if (_isLoadingEditor)
             return;
         ApplyEditor();
+
+        var bodyType = GetSelectedBodyType();
+        if (bodyType == ApiBodyType.Json)
+        {
+            // Auto-format and apply JSON highlighting
+            if (JsonFormatService.TryFormat(BodyBox.Text, out string formatted) &&
+                formatted != BodyBox.Text)
+            {
+                _isLoadingEditor = true;
+                BodyBox.Text = formatted;
+                _isLoadingEditor = false;
+                if (_currentRequest != null)
+                    _currentRequest.Body = formatted;
+            }
+            RefreshBodyHighlight();
+        }
+        else if (bodyType == ApiBodyType.Xml)
+        {
+            // Auto-format and apply XML highlighting
+            if (XmlFormatService.TryFormat(BodyBox.Text, out string xmlFormatted) &&
+                xmlFormatted != BodyBox.Text)
+            {
+                _isLoadingEditor = true;
+                BodyBox.Text = xmlFormatted;
+                _isLoadingEditor = false;
+                if (_currentRequest != null)
+                    _currentRequest.Body = xmlFormatted;
+            }
+            RefreshBodyHighlight();
+        }
+        else
+        {
+            HideBodyHighlight();
+        }
+    }
+
+    private bool IsJsonBodyMode()
+    {
+        return RawFormatComboBox.Visibility == Visibility.Visible &&
+               RawFormatComboBox.SelectedItem is ComboBoxItem ci &&
+               string.Equals(ci.Tag?.ToString(), "Json", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsXmlBodyMode()
+    {
+        return RawFormatComboBox.Visibility == Visibility.Visible &&
+               RawFormatComboBox.SelectedItem is ComboBoxItem ci &&
+               string.Equals(ci.Tag?.ToString(), "Xml", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void RefreshBodyHighlight()
+    {
+        if (BodyHighlightBlock == null || BodyHighlightScrollViewer == null)
+            return;
+        bool isJson = IsJsonBodyMode();
+        bool isXml = IsXmlBodyMode();
+        if ((!isJson && !isXml) || string.IsNullOrWhiteSpace(BodyBox.Text))
+        {
+            HideBodyHighlight();
+            return;
+        }
+        if (isJson)
+            RichTextHelper.ApplyJsonHighlighting(BodyHighlightBlock, BodyBox.Text);
+        else if (isXml)
+            RichTextHelper.ApplyXmlHighlighting(BodyHighlightBlock, BodyBox.Text);
+        BodyHighlightScrollViewer.Visibility = Visibility.Visible;
+        BodyBox.Visibility = Visibility.Collapsed;
+    }
+
+    private void HideBodyHighlight()
+    {
+        if (BodyHighlightScrollViewer == null || BodyBox == null)
+            return;
+        BodyHighlightScrollViewer.Visibility = Visibility.Collapsed;
+        BodyBox.Visibility = Visibility.Visible;
+    }
+
+    private void BodyBox_GotFocus(object sender, RoutedEventArgs e)
+    {
+        HideBodyHighlight();
+    }
+
+    private void BodyBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (IsJsonBodyMode() || IsXmlBodyMode())
+            RefreshBodyHighlight();
+    }
+
+    private void BodyHighlight_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        HideBodyHighlight();
+        BodyBox.Focus(FocusState.Pointer);
     }
 
     private async void SelectBinaryFile_Click(object sender, RoutedEventArgs e)
@@ -1137,14 +1363,27 @@ public sealed partial class WorkspacePage : Page
         bool isUrlEncoded = bodyType == ApiBodyType.XWwwFormUrlencoded;
         bool isBinary = bodyType == ApiBodyType.Binary;
         bool isRaw = bodyType is ApiBodyType.Raw or ApiBodyType.Json or ApiBodyType.Xml;
+        bool isJson = bodyType == ApiBodyType.Json;
+        bool isXml = bodyType == ApiBodyType.Xml;
+        bool isHighlighted = isJson || isXml;
 
-        BodyBox.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
+        BodyBox.Visibility = (isRaw && !isHighlighted) ? Visibility.Visible : Visibility.Collapsed;
         FormDataTable.Visibility = isFormData ? Visibility.Visible : Visibility.Collapsed;
         UrlEncodedTable.Visibility = isUrlEncoded ? Visibility.Visible : Visibility.Collapsed;
         BinaryInfoPanel.Visibility = isBinary ? Visibility.Visible : Visibility.Collapsed;
         SelectFileButton.Visibility = isBinary ? Visibility.Visible : Visibility.Collapsed;
         BinaryFilePathText.Visibility = (isBinary && !string.IsNullOrWhiteSpace(BinaryFilePathText.Text)) ? Visibility.Visible : Visibility.Collapsed;
         RawFormatComboBox.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
+
+        if (isHighlighted)
+        {
+            BodyBox.Visibility = Visibility.Collapsed;
+            RefreshBodyHighlight();
+        }
+        else
+        {
+            HideBodyHighlight();
+        }
     }
 
     private void SetResponseMetrics(string? status, long? elapsedMilliseconds, long? bodyBytes, bool isSuccess)
@@ -1277,15 +1516,40 @@ public sealed partial class WorkspacePage : Page
     private void UpdateTypeVisibility(ApiRequestType type)
     {
         bool isGrpc = type == ApiRequestType.Grpc;
+        bool isWebSocket = type == ApiRequestType.WebSocket;
+        bool isHttp = type == ApiRequestType.Http;
+
         GrpcMethodBox.Visibility = isGrpc ? Visibility.Visible : Visibility.Collapsed;
         GrpcTlsCheckBox.Visibility = isGrpc ? Visibility.Visible : Visibility.Collapsed;
-        MethodComboBox.IsEnabled = type == ApiRequestType.Http;
+        MethodComboBox.IsEnabled = isHttp;
 
-        if (type == ApiRequestType.WebSocket)
+        // Update breadcrumb badge color
+        string badgeColor = type switch
+        {
+            ApiRequestType.Http => "#16A34A",
+            ApiRequestType.Grpc => "#2563EB",
+            ApiRequestType.WebSocket => "#9333EA",
+            _ => "#64748B"
+        };
+        BreadcrumbTypeBadge.Background = new SolidColorBrush(
+            Windows.UI.Color.FromArgb(255,
+                Convert.ToByte(badgeColor[1..3], 16),
+                Convert.ToByte(badgeColor[3..5], 16),
+                Convert.ToByte(badgeColor[5..7], 16)));
+        BreadcrumbTypeText.Text = type.ToString().ToUpper();
+
+        // Show/hide WebSocket panel vs. HTTP/gRPC panels
+        WebSocketPanel.Visibility = isWebSocket ? Visibility.Visible : Visibility.Collapsed;
+        // Hide the normal request body and response panels for WebSocket
+        // (they are children of RequestEditorArea rows 1-4)
+        // We use Grid.Row visibility indirectly by overlaying WebSocketPanel
+
+        if (isWebSocket)
         {
             SelectMethod("CONNECT");
             if (_currentRequest != null)
                 _currentRequest.Method = "CONNECT";
+            ResetWsStatus();
         }
         else if (type == ApiRequestType.Grpc)
         {
@@ -1293,6 +1557,241 @@ public sealed partial class WorkspacePage : Page
             if (_currentRequest != null)
                 _currentRequest.Method = "POST";
         }
+    }
+
+    private void ResetWsStatus()
+    {
+        if (WsStatusDot == null) return;
+        WsStatusDot.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 156, 163, 175));
+        WsStatusText.Text = "Disconnected";
+        WsConnectButton.Content = "Connect";
+    }
+
+    private void WsUrlBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_isLoadingEditor || _currentRequest == null)
+            return;
+        // Sync WsUrlBox → UrlBox (and thus _currentRequest.Url)
+        _isLoadingEditor = true;
+        UrlBox.Text = WsUrlBox.Text;
+        _isLoadingEditor = false;
+        _currentRequest.Url = WsUrlBox.Text.Trim();
+    }
+
+    private void UpdateBreadcrumb()
+    {
+        if (_currentRequest == null)
+        {
+            BreadcrumbCollectionText.Text = "";
+            BreadcrumbNameText.Text = "";
+            return;
+        }
+
+        string typeLabel = _currentRequest.Type switch
+        {
+            ApiRequestType.Http => "HTTP",
+            ApiRequestType.Grpc => "gRPC",
+            ApiRequestType.WebSocket => "WebSocket",
+            _ => "HTTP"
+        };
+
+        // Build full path: CollectionName / Folder1 / Folder2 / ... / RequestName
+        string collectionName = _currentCollection?.Name ?? "";
+        List<string>? nodePath = _currentCollection != null
+            ? RequestHelpers.GetNodePath(_currentCollection.Nodes, _currentRequest.Id)
+            : null;
+
+        // BreadcrumbCollectionText = CollectionName / Folder1 / Folder2  (excludes the request name)
+        string pathText;
+        if (nodePath != null && nodePath.Count > 1)
+        {
+            // Path has folders: "CollectionName / Folder1 / Folder2"
+            var folderSegments = nodePath.Take(nodePath.Count - 1).ToList();
+            if (!string.IsNullOrEmpty(collectionName))
+                folderSegments.Insert(0, collectionName);
+            pathText = string.Join(" / ", folderSegments);
+        }
+        else if (!string.IsNullOrEmpty(collectionName))
+        {
+            // Request is directly in the collection root (no sub-folders)
+            pathText = collectionName;
+        }
+        else
+        {
+            // Temporary request — no collection context
+            pathText = "";
+        }
+        BreadcrumbCollectionText.Text = pathText;
+        BreadcrumbSeparator.Visibility = string.IsNullOrEmpty(pathText) ? Visibility.Collapsed : Visibility.Visible;
+
+        // Request name (display text)
+        BreadcrumbNameText.Text = string.IsNullOrWhiteSpace(_currentRequest.Name) ? "Untitled" : _currentRequest.Name;
+
+        // Sync NameBox text without triggering TextChanged loop
+        if (NameBox.Visibility == Visibility.Collapsed && NameBox.Text != _currentRequest.Name)
+        {
+            _isLoadingEditor = true;
+            NameBox.Text = _currentRequest.Name;
+            _isLoadingEditor = false;
+        }
+    }
+
+    private void BreadcrumbTypeButton_Click(object sender, RoutedEventArgs e)
+    {
+        // The flyout is declared in XAML; this handler is a placeholder
+        // in case additional logic is needed before showing the flyout.
+    }
+
+    private void BreadcrumbTypeItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentRequest == null || sender is not MenuFlyoutItem item)
+            return;
+
+        string? tag = item.Tag?.ToString();
+        if (string.IsNullOrEmpty(tag) || !Enum.TryParse<ApiRequestType>(tag, out var newType))
+            return;
+
+        // Sync NameBox back to model before changing type
+        if (NameBox.Visibility == Visibility.Visible)
+            CommitNameEdit();
+
+        _currentRequest.Type = newType;
+        SelectType(newType);
+        UpdateTypeVisibility(newType);
+        UpdateBreadcrumb();
+        ApplyEditor();
+    }
+
+    private void BreadcrumbNameText_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
+        if (_currentRequest == null) return;
+        BreadcrumbNameText.Visibility = Visibility.Collapsed;
+        NameBox.Visibility = Visibility.Visible;
+        NameBox.Text = _currentRequest.Name;
+        NameBox.SelectAll();
+        NameBox.Focus(FocusState.Programmatic);
+    }
+
+    private void NameBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        CommitNameEdit();
+    }
+
+    private void NameBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Enter)
+        {
+            CommitNameEdit();
+            e.Handled = true;
+        }
+        else if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            // Cancel edit: restore original name
+            NameBox.Text = _currentRequest?.Name ?? "";
+            CommitNameEdit();
+            e.Handled = true;
+        }
+    }
+
+    private void CommitNameEdit()
+    {
+        if (_currentRequest == null) return;
+        string newName = NameBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(newName))
+            newName = "Untitled";
+        _currentRequest.Name = newName;
+        NameBox.Visibility = Visibility.Collapsed;
+        BreadcrumbNameText.Visibility = Visibility.Visible;
+        BreadcrumbNameText.Text = newName;
+        UpdateCurrentTabHeader();
+    }
+
+    private void WsConnectButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentRequest == null) return;
+
+        bool isConnected = WsConnectButton.Content?.ToString() == "Disconnect";
+        if (isConnected)
+        {
+            // Disconnect
+            _sendCancellation?.Cancel();
+            WsStatusDot.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 156, 163, 175));
+            WsStatusText.Text = "Disconnected";
+            WsConnectButton.Content = "Connect";
+            AppendWsMessage("[Disconnected]", false);
+        }
+        else
+        {
+            ApplyEditor();
+            // Use WsUrlBox value for WebSocket connection
+            string wsUrl = WsUrlBox.Text.Trim();
+            if (!string.IsNullOrWhiteSpace(wsUrl))
+                _currentRequest.Url = wsUrl;
+            // Show connecting state
+            WsStatusDot.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 234, 179, 8));
+            WsStatusText.Text = "Connecting...";
+            WsConnectButton.Content = "Disconnect";
+            AppendWsMessage($"[Connecting to {_currentRequest.Url}]", false);
+            _ = ConnectWebSocketAsync();
+        }
+    }
+
+    private async Task ConnectWebSocketAsync()
+    {
+        if (_currentRequest == null) return;
+        _sendCancellation?.Cancel();
+        _sendCancellation = new CancellationTokenSource();
+        try
+        {
+            ApiRequest resolved = EnvironmentVariableResolver.Resolve(_currentRequest, _workspace.EnvironmentVariables);
+            var response = await _executor.ExecuteAsync(resolved, _sendCancellation.Token);
+            WsStatusDot.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 34, 197, 94));
+            WsStatusText.Text = "Connected";
+            AppendWsMessage($"[Connected] {response.Summary}", false);
+            if (!string.IsNullOrWhiteSpace(response.Body))
+                AppendWsMessage(response.Body, false);
+        }
+        catch (Exception ex)
+        {
+            WsStatusDot.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 239, 68, 68));
+            WsStatusText.Text = "Error";
+            WsConnectButton.Content = "Connect";
+            AppendWsMessage($"[Error] {ex.Message}", false);
+        }
+        finally
+        {
+            _sendCancellation?.Dispose();
+            _sendCancellation = null;
+        }
+    }
+
+    private void WsSendMessageButton_Click(object sender, RoutedEventArgs e)
+    {
+        string msg = WsMessageBox.Text;
+        if (string.IsNullOrWhiteSpace(msg)) return;
+        AppendWsMessage($"↑ {msg}", true);
+        WsMessageBox.Text = "";
+    }
+
+    private void WsClearButton_Click(object sender, RoutedEventArgs e)
+    {
+        WsMessageList.Children.Clear();
+    }
+
+    private void AppendWsMessage(string text, bool isSent)
+    {
+        var tb = new TextBlock
+        {
+            Text = text,
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = isSent
+                ? (Brush)Application.Current.Resources["PositiveStatusBrush"]
+                : new SolidColorBrush(Microsoft.UI.Colors.Black)
+        };
+        WsMessageList.Children.Add(tb);
+        WsMessageScrollViewer.ChangeView(null, double.MaxValue, null);
     }
 
     private void SelectType(ApiRequestType type)

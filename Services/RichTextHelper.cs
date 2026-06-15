@@ -32,6 +32,27 @@ public static class RichTextHelper
         richTextBlock.Blocks.Add(paragraph);
     }
 
+    public static void ApplyXmlHighlighting(RichTextBlock richTextBlock, string xml)
+    {
+        richTextBlock.Blocks.Clear();
+        if (string.IsNullOrEmpty(xml))
+            return;
+
+        bool isDark = IsDarkTheme(richTextBlock);
+        var tokens = XmlHighlightService.TokenizeDetailed(xml);
+        var paragraph = new Paragraph();
+
+        foreach (var token in tokens)
+        {
+            var run = new Run { Text = token.Text };
+            if (token.Kind != XmlTokenKind.Whitespace)
+                run.Foreground = new SolidColorBrush(XmlHighlightService.GetColor(token.Kind, isDark));
+            paragraph.Inlines.Add(run);
+        }
+
+        richTextBlock.Blocks.Add(paragraph);
+    }
+
     public static void ApplyPlainText(RichTextBlock richTextBlock, string text)
     {
         richTextBlock.Blocks.Clear();
