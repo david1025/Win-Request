@@ -19,7 +19,10 @@
                     Height="40"
                     Spacing="10"
                     IsHitTestVisible="False">
-            <FontIcon Glyph="&#xE8A7;" FontSize="16" Foreground="#FF7C3A" VerticalAlignment="Center" />
+            <Image Source="Assets/WinRequest.png"
+                   Width="18"
+                   Height="18"
+                   VerticalAlignment="Center" />
             <TextBlock Text="Win Request"
                        FontSize="13"
                        FontWeight="SemiBold"

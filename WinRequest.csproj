@@ -19,6 +19,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\WinRequest.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,5 +27,10 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\WinRequest.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\WinRequest.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

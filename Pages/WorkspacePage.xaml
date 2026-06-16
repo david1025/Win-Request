@@ -21,6 +21,8 @@
             <Setter Property="BorderBrush" Value="{StaticResource WorkbenchStrokeBrush}" />
             <Setter Property="CornerRadius" Value="4" />
             <Setter Property="FontSize" Value="13" />
+            <Setter Property="IsSpellCheckEnabled" Value="False" />
+            <Setter Property="IsTextPredictionEnabled" Value="False" />
         </Style>
 
         <Style TargetType="ComboBox" BasedOn="{StaticResource DefaultComboBoxStyle}">
@@ -36,6 +38,19 @@
             <Setter Property="Padding" Value="8,4" />
             <Setter Property="MinWidth" Value="28" />
             <Setter Property="MinHeight" Value="28" />
+        </Style>
+
+        <Style x:Key="TreeNodeActionButtonStyle" TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="MinWidth" Value="22" />
+            <Setter Property="MinHeight" Value="22" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+
+        <Style x:Key="CompactTreeViewItemStyle" TargetType="TreeViewItem">
+            <Setter Property="MinHeight" Value="24" />
+            <Setter Property="Padding" Value="0" />
         </Style>
 
         <Style x:Key="EmptyCommandButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
@@ -88,9 +103,11 @@
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
         <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
         <converters:MethodToBrushConverter x:Key="MethodToBrushConverter" />
+        <converters:HistoryNodeTextConverter x:Key="HistoryNodeTextConverter" />
+        <converters:HistoryNodeMethodBrushConverter x:Key="HistoryNodeMethodBrushConverter" />
 
         <DataTemplate x:Key="TreeNodeTemplate">
-            <Grid MinHeight="28"
+            <Grid MinHeight="22"
                   Padding="0"
                   Background="Transparent"
                   PointerEntered="TreeNode_PointerEntered"
@@ -101,16 +118,16 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Orientation="Horizontal"
-                            Spacing="7"
+                            Spacing="5"
                             VerticalAlignment="Center"
                             MinWidth="0">
                     <FontIcon Glyph="&#xE8B7;"
-                              FontSize="13"
+                              FontSize="12"
                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                               Visibility="{Binding Content.IsFolder, Converter={StaticResource BoolToVisibilityConverter}}" />
                     <Border CornerRadius="4"
-                            Padding="5,1"
-                            MinWidth="40"
+                            Padding="4,0"
+                            MinWidth="34"
                             Background="{Binding Content.Request.Method, Converter={StaticResource MethodToBrushConverter}}"
                             Visibility="{Binding Content.IsFolder, Converter={StaticResource InverseBoolToVisibilityConverter}}">
                         <TextBlock Text="{Binding Content.Request.Method}"
@@ -120,7 +137,7 @@
                                    HorizontalAlignment="Center" />
                     </Border>
                     <TextBlock Text="{Binding Content.Name}"
-                               FontSize="13"
+                               FontSize="12"
                                TextTrimming="CharacterEllipsis"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
@@ -130,30 +147,31 @@
                             Orientation="Horizontal"
                             Spacing="2"
                             Visibility="Collapsed">
-                    <Button Tag="{Binding Content}"
+                    <Button x:Name="NodeAddButton"
+                            Tag="{Binding Content}"
                             Click="NodeAddButton_Click"
                             ToolTipService.ToolTip="New request"
-                            Style="{StaticResource GhostButtonStyle}">
-                        <FontIcon Glyph="&#xE710;" FontSize="11" />
+                            Style="{StaticResource TreeNodeActionButtonStyle}">
+                        <FontIcon Glyph="&#xE710;" FontSize="10" />
                     </Button>
                     <Button Tag="{Binding Content}"
                             Click="NodeMoreButton_Click"
                             ToolTipService.ToolTip="More"
-                            Style="{StaticResource GhostButtonStyle}">
-                        <FontIcon Glyph="&#xE712;" FontSize="11" />
+                            Style="{StaticResource TreeNodeActionButtonStyle}">
+                        <FontIcon Glyph="&#xE712;" FontSize="10" />
                     </Button>
                 </StackPanel>
             </Grid>
         </DataTemplate>
 
         <MenuFlyout x:Key="TreeNodeFlyout">
-            <MenuFlyoutItem Text="New request" Icon="Add" Click="ContextAddRequest_Click" />
-            <MenuFlyoutItem Text="New folder" Click="ContextAddSubFolder_Click">
+            <MenuFlyoutItem x:Name="FlyoutNewRequest" Text="New request" Icon="Add" Click="ContextAddRequest_Click" />
+            <MenuFlyoutItem x:Name="FlyoutNewFolder" Text="New folder" Click="ContextAddSubFolder_Click">
                 <MenuFlyoutItem.Icon>
                     <FontIcon Glyph="&#xE8F4;" />
                 </MenuFlyoutItem.Icon>
             </MenuFlyoutItem>
-            <MenuFlyoutSeparator />
+            <MenuFlyoutSeparator x:Name="FlyoutNewSeparator" />
             <MenuFlyoutItem Text="Rename" Click="ContextRename_Click">
                 <MenuFlyoutItem.Icon>
                     <FontIcon Glyph="&#xE8AC;" />
@@ -192,6 +210,12 @@
             <MenuFlyoutItem Text="Close tabs to the right" Click="TabContext_CloseRight_Click">
                 <MenuFlyoutItem.Icon>
                     <FontIcon Glyph="&#xE76C;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutSeparator />
+            <MenuFlyoutItem Text="Close all" Click="TabContext_CloseAll_Click">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE89A;" />
                 </MenuFlyoutItem.Icon>
             </MenuFlyoutItem>
         </MenuFlyout>
@@ -303,6 +327,11 @@
                                             <FontIcon Glyph="&#xE8E5;" />
                                         </MenuFlyoutItem.Icon>
                                     </MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="Import Postman" Click="ImportPostmanButton_Click">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE8E5;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
                                 </MenuFlyout>
                             </Button.Flyout>
                         </Button>
@@ -315,6 +344,7 @@
                               RightTapped="RequestTreeView_RightTapped"
                               CanDragItems="False"
                               CanReorderItems="False"
+                              ItemContainerStyle="{StaticResource CompactTreeViewItemStyle}"
                               ItemTemplate="{StaticResource TreeNodeTemplate}" />
                 </Grid>
 
@@ -401,11 +431,10 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <NavigationViewItem Content="History"
-                                        Icon="Clock"
-                                        IsSelected="True"
-                                        Height="32"
-                                        Padding="8,0" />
+                    <TextBox x:Name="HistorySearchBox"
+                             Height="32"
+                             PlaceholderText="Search History"
+                             TextChanged="HistorySearchBox_TextChanged" />
                     <TreeView x:Name="HistoryTreeView"
                               Grid.Row="1"
                               ItemInvoked="HistoryTreeView_ItemInvoked"
@@ -418,16 +447,16 @@
                                     <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center"
                                                 Visibility="{Binding Content.IsFolder, Converter={StaticResource BoolToVisibilityConverter}}">
                                         <FontIcon Glyph="&#xE8B7;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                        <TextBlock Text="{Binding Content.DateLabel}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                        <TextBlock Text="{Binding Content.CountDisplay}" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding Content, Converter={StaticResource HistoryNodeTextConverter}, ConverterParameter=DateLabel}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding Content, Converter={StaticResource HistoryNodeTextConverter}, ConverterParameter=CountDisplay}" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
                                                 Visibility="{Binding Content.IsFolder, Converter={StaticResource InverseBoolToVisibilityConverter}}">
                                         <Border CornerRadius="3" Padding="4,1" MinWidth="36"
-                                                Background="{Binding Content.Method, Converter={StaticResource MethodToBrushConverter}}">
-                                            <TextBlock Text="{Binding Content.Method}" FontSize="10" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center" />
+                                                Background="{Binding Content, Converter={StaticResource HistoryNodeMethodBrushConverter}}">
+                                            <TextBlock Text="{Binding Content, Converter={StaticResource HistoryNodeTextConverter}, ConverterParameter=Method}" FontSize="10" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center" />
                                         </Border>
-                                        <TextBlock Text="{Binding Content.Url}" FontSize="12" TextTrimming="CharacterEllipsis" MaxWidth="180" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding Content, Converter={StaticResource HistoryNodeTextConverter}, ConverterParameter=Url}" FontSize="12" TextTrimming="CharacterEllipsis" MaxWidth="180" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </Grid>
                             </DataTemplate>
@@ -536,7 +565,6 @@
                     <Button.Flyout>
                         <MenuFlyout>
                             <MenuFlyoutItem Text="HTTP" Tag="Http" Click="BreadcrumbTypeItem_Click" />
-                            <MenuFlyoutItem Text="gRPC" Tag="Grpc" Click="BreadcrumbTypeItem_Click" />
                             <MenuFlyoutItem Text="WebSocket" Tag="WebSocket" Click="BreadcrumbTypeItem_Click" />
                         </MenuFlyout>
                     </Button.Flyout>
@@ -575,6 +603,8 @@
                             <Setter Property="VerticalAlignment" Value="Center" />
                             <Setter Property="HorizontalAlignment" Value="Left" />
                             <Setter Property="VerticalContentAlignment" Value="Center" />
+                            <Setter Property="IsSpellCheckEnabled" Value="False" />
+                            <Setter Property="IsTextPredictionEnabled" Value="False" />
                             <Setter Property="Template">
                                 <Setter.Value>
                                     <ControlTemplate TargetType="TextBox">
@@ -676,7 +706,7 @@
                     Padding="8,7">
                 <Grid ColumnSpacing="8">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="92" />
+                        <ColumnDefinition x:Name="MethodColumn" Width="92" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
@@ -698,12 +728,27 @@
                         <ComboBoxItem Content="CONNECT" />
                     </ComboBox>
 
+                    <StackPanel x:Name="WsConnectionStatusPanel"
+                                Orientation="Horizontal"
+                                Spacing="7"
+                                Visibility="Collapsed"
+                                VerticalAlignment="Center">
+                        <Ellipse x:Name="WsStatusDot"
+                                 Width="9"
+                                 Height="9"
+                                 Fill="#9CA3AF" />
+                        <TextBlock x:Name="WsStatusText"
+                                   Text="Disconnected"
+                                   FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+
                     <!-- Hidden TypeComboBox kept for data binding -->
                     <ComboBox x:Name="TypeComboBox"
                               SelectionChanged="TypeComboBox_SelectionChanged"
                               Visibility="Collapsed">
                         <ComboBoxItem Content="HTTP" Tag="Http" IsSelected="True" />
-                        <ComboBoxItem Content="gRPC" Tag="Grpc" />
                         <ComboBoxItem Content="WebSocket" Tag="WebSocket" />
                     </ComboBox>
 
@@ -713,18 +758,23 @@
                              TextChanged="UrlBox_TextChanged"
                              Height="34" />
 
-                    <Button x:Name="SendButton"
-                            Grid.Column="2"
-                            Click="SendButton_Click"
-                            Style="{ThemeResource AccentButtonStyle}"
-                            Padding="20,6"
-                            Height="34"
-                            FontWeight="SemiBold">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE768;" FontSize="13" />
-                            <TextBlock Text="Send" />
-                        </StackPanel>
-                    </Button>
+                    <Grid Grid.Column="2">
+                        <Button x:Name="SendButton"
+                                Click="SendButton_Click"
+                                Style="{ThemeResource AccentButtonStyle}"
+                                Padding="20,6"
+                                Height="34"
+                                FontWeight="SemiBold">
+                            <TextBlock x:Name="SendButtonText" Text="Send" />
+                        </Button>
+                        <Button x:Name="WsConnectButton"
+                                Content="Connect"
+                                Click="WsConnectButton_Click"
+                                Style="{ThemeResource AccentButtonStyle}"
+                                Padding="16,6"
+                                Height="34"
+                                Visibility="Collapsed" />
+                    </Grid>
                 </Grid>
             </Border>
 
@@ -737,27 +787,8 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <Grid ColumnSpacing="8"
-                          Visibility="Collapsed">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="180" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="GrpcMethodBox"
-                                 Grid.Column="1"
-                                 PlaceholderText="gRPC service/method, e.g. helloworld.Greeter/SayHello"
-                                 TextChanged="Editor_TextChanged"
-                                 Height="32" />
-                        <CheckBox x:Name="GrpcTlsCheckBox"
-                                  Grid.Column="2"
-                                  Content="TLS"
-                                  Checked="Editor_CheckChanged"
-                                  Unchecked="Editor_CheckChanged"
-                                  VerticalAlignment="Center" />
-                    </Grid>
-
-                    <TabView Grid.Row="1"
+                    <TabView x:Name="RequestConfigTabView"
+                             Grid.Row="1"
                              IsAddTabButtonVisible="False"
                              CanDragTabs="False"
                              TabWidthMode="SizeToContent"
@@ -773,16 +804,17 @@
                             <controls:KeyValueTable x:Name="HeadersTable"
                                                     KeyPlaceholderText="Header name"
                                                     ValuePlaceholderText="Header value"
-                                                    DescriptionPlaceholderText="Description" />
+                                                    DescriptionPlaceholderText="Description"
+                                                    SupportsAutoGeneratedHeaders="True" />
                         </TabViewItem>
-                        <TabViewItem Header="Body" IsClosable="False">
+                        <TabViewItem x:Name="BodyTabItem" Header="Body" IsClosable="False">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
 
-                                <Grid Padding="4,4,4,8">
+                                <Grid x:Name="BodyOptionsGrid" Padding="4,4,4,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
@@ -852,6 +884,32 @@
                                     </StackPanel>
                                 </Grid>
 
+                                <Grid x:Name="WsMessageActions"
+                                      Padding="4,4,4,8"
+                                      Visibility="Collapsed">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox MinWidth="92"
+                                              SelectedIndex="0"
+                                              Height="32">
+                                        <ComboBoxItem Content="Text" />
+                                        <ComboBoxItem Content="JSON" />
+                                    </ComboBox>
+                                    <Button Grid.Column="2"
+                                            Click="WsSendMessageButton_Click"
+                                            Style="{ThemeResource AccentButtonStyle}"
+                                            Padding="16,6"
+                                            Height="32">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <FontIcon Glyph="&#xE724;" FontSize="13" />
+                                            <TextBlock Text="Send" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+
                                 <Grid Grid.Row="1">
                                     <RichEditBox x:Name="BodyBox"
                                                  AcceptsReturn="True"
@@ -866,7 +924,7 @@
                                                  Padding="10,8"
                                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                                 PlaceholderText="JSON / text / WebSocket message / gRPC JSON request body"
+                                                 PlaceholderText="JSON / text / WebSocket message"
                                                  TextChanged="BodyBox_TextChanged" />
 
                                     <controls:KeyValueTable x:Name="FormDataTable"
@@ -892,7 +950,7 @@
                                 </Grid>
                             </Grid>
                         </TabViewItem>
-                        <TabViewItem Header="Authorization" IsClosable="False">
+                        <TabViewItem x:Name="AuthorizationTabItem" Header="Authorization" IsClosable="False">
                             <TextBlock Text="Authorization settings can be added here."
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                        Margin="8" />
@@ -949,17 +1007,17 @@
                             <TextBlock x:Name="ResponseSizeValueText"
                                        Text="-"
                                        FontWeight="SemiBold" />
-                            <Button x:Name="CancelSendButton"
-                                    Click="CancelSendButton_Click"
-                                    Visibility="Collapsed"
-                                    ToolTipService.ToolTip="Cancel current request"
-                                    Style="{StaticResource GhostButtonStyle}">
-                                <FontIcon Glyph="&#xE711;" FontSize="12" />
-                            </Button>
                             <Button Click="FormatResponseJsonButton_Click"
                                     ToolTipService.ToolTip="Format response Body JSON"
                                     Style="{StaticResource GhostButtonStyle}">
                                 <FontIcon Glyph="&#xE943;" FontSize="12" />
+                            </Button>
+                            <Button x:Name="WsClearButton"
+                                    Click="WsClearButton_Click"
+                                    ToolTipService.ToolTip="Clear messages"
+                                    Style="{StaticResource GhostButtonStyle}"
+                                    Visibility="Collapsed">
+                                <FontIcon Glyph="&#xE74D;" FontSize="13" />
                             </Button>
                             <ProgressRing x:Name="SendProgressRing"
                                           Width="20"
@@ -969,7 +1027,8 @@
                         </StackPanel>
                     </Grid>
 
-                    <TabView Grid.Row="1"
+                    <TabView x:Name="ResponseTabView"
+                             Grid.Row="1"
                              IsAddTabButtonVisible="False"
                              CanDragTabs="False"
                              TabWidthMode="SizeToContent">
@@ -998,101 +1057,19 @@
                                      Background="#FFF8F9FA" />
                         </TabViewItem>
                     </TabView>
-                </Grid>
-            </Border>
 
-            <!-- WebSocket panel — covers body + response area when WebSocket type is selected -->
-            <Border x:Name="WebSocketPanel"
-                    Grid.Row="3"
-                    Grid.RowSpan="3"
-                    Visibility="Collapsed"
-                    Style="{StaticResource PanelBorderStyle}">
-                <Grid RowSpacing="0">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
-                    <!-- Connection status bar -->
-                    <Grid Padding="10,8" ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <Ellipse x:Name="WsStatusDot"
-                                     Width="10" Height="10"
-                                     Fill="#9CA3AF" />
-                            <TextBlock x:Name="WsStatusText"
-                                       Text="Disconnected"
-                                       FontSize="13"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       VerticalAlignment="Center" />
-                        </StackPanel>
-                        <TextBox x:Name="WsUrlBox"
-                                 Grid.Column="1"
-                                 PlaceholderText="ws://localhost:8080/ws"
-                                 FontFamily="Consolas"
-                                 FontSize="13"
-                                 Height="34"
-                                 TextChanged="WsUrlBox_TextChanged" />
-                        <Button x:Name="WsConnectButton"
-                                Grid.Column="2"
-                                Content="Connect"
-                                Click="WsConnectButton_Click"
-                                Style="{ThemeResource AccentButtonStyle}"
-                                Padding="16,6" />
-                        <Button x:Name="WsClearButton"
-                                Grid.Column="3"
-                                Click="WsClearButton_Click"
-                                ToolTipService.ToolTip="Clear messages"
-                                Style="{StaticResource GhostButtonStyle}">
-                            <FontIcon Glyph="&#xE74D;" FontSize="13" />
-                        </Button>
-                    </Grid>
-
-                    <!-- Message send area -->
-                    <Border Grid.Row="1"
-                            BorderBrush="{StaticResource WorkbenchSubtleStrokeBrush}"
-                            BorderThickness="0,1,0,1"
-                            Padding="8,6">
-                        <Grid ColumnSpacing="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox x:Name="WsMessageBox"
-                                     PlaceholderText="Message to send (text or JSON)"
-                                     Height="34"
-                                     FontFamily="Consolas"
-                                     FontSize="13" />
-                            <Button Grid.Column="1"
-                                    Click="WsSendMessageButton_Click"
-                                    Style="{ThemeResource AccentButtonStyle}"
-                                    Padding="16,6"
-                                    Height="34">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE724;" FontSize="13" />
-                                    <TextBlock Text="Send" />
-                                </StackPanel>
-                            </Button>
-                        </Grid>
-                    </Border>
-
-                    <!-- Message log -->
-                    <ScrollViewer Grid.Row="2"
-                                  x:Name="WsMessageScrollViewer"
+                    <ScrollViewer x:Name="WsMessageScrollViewer"
+                                  Grid.Row="1"
                                   HorizontalScrollBarVisibility="Auto"
                                   VerticalScrollBarVisibility="Auto"
                                   Background="#FFF8F9FA"
-                                  Padding="10,8">
+                                  Padding="10,8"
+                                  Visibility="Collapsed">
                         <StackPanel x:Name="WsMessageList" Spacing="4" />
                     </ScrollViewer>
                 </Grid>
             </Border>
+
 
             <Grid x:Name="EmptyWorkspacePanel"
                   Grid.Row="0"
@@ -1367,7 +1344,7 @@
                         <TextBlock Text="关于" Style="{ThemeResource SubtitleTextBlockStyle}" />
                         <TextBlock Text="Win Request" FontWeight="SemiBold" />
                         <TextBlock Text="一个参考 Swell-SSH 技术框架实现的 WinUI 3 API 调试客户端。" TextWrapping="Wrap" />
-                        <TextBlock Text="当前功能包括 Collection、Swagger 导入、HTTP、gRPC、WebSocket、历史、环境变量、JSON 格式化、主题与字体设置。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="当前功能包括 Collection、Swagger 导入、HTTP、WebSocket、历史、环境变量、JSON 格式化、主题与字体设置。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </StackPanel>
                 </Border>
 

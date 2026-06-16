@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using WinRequest.Pages;
@@ -12,10 +14,24 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        SetWindowIcon();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         ContentFrame.Navigate(typeof(WorkspacePage));
         _ = ApplySavedSettingsAsync();
+    }
+
+    private void SetWindowIcon()
+    {
+        try
+        {
+            string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "WinRequest.ico");
+            if (File.Exists(iconPath))
+                AppWindow.SetIcon(iconPath);
+        }
+        catch
+        {
+        }
     }
 
     private async System.Threading.Tasks.Task ApplySavedSettingsAsync()

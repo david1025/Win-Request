@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
+using WinRequest.Models;
 
 namespace WinRequest.Converters;
 
@@ -58,6 +59,51 @@ public sealed class MethodToBrushConverter : IValueConverter
             _ => Default
         };
     }
+
+    public object ConvertBack(object value, System.Type targetType, object parameter, string language)
+        => throw new System.NotImplementedException();
+}
+
+/// <summary>
+/// Safely reads text fields from mixed history TreeView nodes.
+/// </summary>
+public sealed class HistoryNodeTextConverter : IValueConverter
+{
+    public object Convert(object value, System.Type targetType, object parameter, string language)
+    {
+        string field = parameter?.ToString() ?? "";
+
+        return value switch
+        {
+            HistoryDateGroup group => field switch
+            {
+                "DateLabel" => group.DateLabel,
+                "CountDisplay" => group.CountDisplay,
+                _ => ""
+            },
+            RequestHistoryEntry entry => field switch
+            {
+                "Method" => entry.Method,
+                "Url" => entry.Url,
+                _ => ""
+            },
+            _ => ""
+        };
+    }
+
+    public object ConvertBack(object value, System.Type targetType, object parameter, string language)
+        => throw new System.NotImplementedException();
+}
+
+/// <summary>
+/// Safely maps mixed history TreeView nodes to method badge brushes.
+/// </summary>
+public sealed class HistoryNodeMethodBrushConverter : IValueConverter
+{
+    private readonly MethodToBrushConverter _methodConverter = new();
+
+    public object Convert(object value, System.Type targetType, object parameter, string language)
+        => _methodConverter.Convert(value is RequestHistoryEntry entry ? entry.Method : "", targetType, parameter, language);
 
     public object ConvertBack(object value, System.Type targetType, object parameter, string language)
         => throw new System.NotImplementedException();

@@ -20,7 +20,6 @@ public sealed class RequestExecutionService
         {
             ApiRequestType.Http => ExecuteHttpAsync(request, cancellationToken),
             ApiRequestType.WebSocket => ExecuteWebSocketAsync(request, cancellationToken),
-            ApiRequestType.Grpc => ExecuteGrpcAsync(request, cancellationToken),
             _ => throw new NotSupportedException($"Unsupported request type: {request.Type}")
         };
     }
@@ -81,8 +80,16 @@ public sealed class RequestExecutionService
 
             foreach (var header in request.Headers.Where(x => x.Enabled && !string.IsNullOrWhiteSpace(x.Key)))
             {
-                if (!message.Headers.TryAddWithoutValidation(header.Key, header.Value))
-                    message.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value);
+                string headerValue = ResolveHeaderValue(header, message.RequestUri);
+                if (string.Equals(header.Key, "Host", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!message.Headers.TryAddWithoutValidation("Host", headerValue))
+                        message.Content?.Headers.TryAddWithoutValidation("Host", headerValue);
+                    continue;
+                }
+
+                if (!message.Headers.TryAddWithoutValidation(header.Key, headerValue))
+                    message.Content?.Headers.TryAddWithoutValidation(header.Key, headerValue);
             }
 
             using HttpResponseMessage response = await _httpClient.SendAsync(message, cancellationToken);
@@ -124,10 +131,11 @@ public sealed class RequestExecutionService
         try
         {
             using var socket = new ClientWebSocket();
+            var uri = new Uri(RequestHelpers.BuildUrl(request));
             foreach (var header in request.Headers.Where(x => x.Enabled && !string.IsNullOrWhiteSpace(x.Key)))
-                socket.Options.SetRequestHeader(header.Key, header.Value);
+                socket.Options.SetRequestHeader(header.Key, ResolveHeaderValue(header, uri));
 
-            await socket.ConnectAsync(new Uri(RequestHelpers.BuildUrl(request)), cancellationToken);
+            await socket.ConnectAsync(uri, cancellationToken);
 
             if (!string.IsNullOrEmpty(request.Body))
             {
@@ -162,63 +170,6 @@ public sealed class RequestExecutionService
             {
                 StatusText = "WebSocket Error",
                 Body = ex.ToString(),
-                Error = ex.Message,
-                ElapsedMilliseconds = stopwatch.ElapsedMilliseconds
-            };
-        }
-    }
-
-    private static async Task<ApiResponse> ExecuteGrpcAsync(ApiRequest request, CancellationToken cancellationToken)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        string grpcurl = OperatingSystem.IsWindows() ? "grpcurl.exe" : "grpcurl";
-        try
-        {
-            string tlsFlag = request.GrpcUseTls ? "" : "-plaintext";
-            string headers = string.Join(" ", request.Headers
-                .Where(x => x.Enabled && !string.IsNullOrWhiteSpace(x.Key))
-                .Select(x => $"-H {Quote($"{x.Key}: {x.Value}")}"));
-            string data = string.IsNullOrWhiteSpace(request.Body) ? "{}" : request.Body;
-            string args = $"{tlsFlag} {headers} -d {Quote(data)} {Quote(request.Url)} {Quote(request.GrpcMethod)}";
-
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = grpcurl,
-                Arguments = args,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using var process = Process.Start(startInfo);
-            if (process == null)
-                throw new InvalidOperationException("无法启动 grpcurl。");
-
-            string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-            string error = await process.StandardError.ReadToEndAsync(cancellationToken);
-            await process.WaitForExitAsync(cancellationToken);
-            stopwatch.Stop();
-
-            return new ApiResponse
-            {
-                StatusText = process.ExitCode == 0 ? "gRPC OK" : $"gRPC Exit {process.ExitCode}",
-                Headers = $"Command: grpcurl {args}",
-                Body = string.IsNullOrWhiteSpace(error) ? output : $"{output}{Environment.NewLine}{error}",
-                BodyBytes = Encoding.UTF8.GetByteCount(string.IsNullOrWhiteSpace(error) ? output : $"{output}{Environment.NewLine}{error}"),
-                Error = process.ExitCode == 0 ? "" : error.Trim(),
-                ElapsedMilliseconds = stopwatch.ElapsedMilliseconds,
-                IsSuccess = process.ExitCode == 0
-            };
-        }
-        catch (Exception ex)
-        {
-            stopwatch.Stop();
-            return new ApiResponse
-            {
-                StatusText = "gRPC Error",
-                Body = "gRPC 请求通过 grpcurl 执行。请确认已安装 grpcurl，并且目标服务支持你填写的 service/method 与 JSON 请求体。" +
-                       Environment.NewLine + Environment.NewLine + ex,
                 Error = ex.Message,
                 ElapsedMilliseconds = stopwatch.ElapsedMilliseconds
             };
@@ -272,8 +223,16 @@ public sealed class RequestExecutionService
         }
     }
 
-    private static string Quote(string value)
+    private static string ResolveHeaderValue(KeyValuePairItem header, Uri? requestUri)
     {
-        return "\"" + value.Replace("\"", "\\\"") + "\"";
+        if (!header.IsAutoGenerated)
+            return header.Value ?? "";
+
+        return header.Key.Trim().ToUpperInvariant() switch
+        {
+            "WINREQUEST-TOKEN" => Guid.NewGuid().ToString("N"),
+            "HOST" => requestUri?.Authority ?? "",
+            _ => header.Value ?? ""
+        };
     }
 }

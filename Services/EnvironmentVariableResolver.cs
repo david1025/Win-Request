@@ -18,7 +18,6 @@ public static partial class EnvironmentVariableResolver
         clone.Name = ReplaceTokens(clone.Name, map);
         clone.Url = ReplaceTokens(clone.Url, map);
         clone.Body = ReplaceTokens(clone.Body, map);
-        clone.GrpcMethod = ReplaceTokens(clone.GrpcMethod, map);
         clone.Headers = clone.Headers
             .Select(x => new KeyValuePairItem
             {

@@ -26,6 +26,7 @@ public sealed partial class WorkspacePage : Page
     private readonly WorkspaceStorage _storage = new();
     private readonly RequestExecutionService _executor = new();
     private readonly OpenApiImporter _importer = new();
+    private readonly PostmanImporter _postmanImporter = new();
     private readonly GitHubUpdateService _updateService = new();
     private readonly ObservableCollection<RequestHistoryEntry> _historyItems = new();
     private ApiWorkspace _workspace = new();
@@ -33,6 +34,9 @@ public sealed partial class WorkspacePage : Page
     private ApiRequest? _currentRequest;
     private readonly List<ApiRequest> _unsavedRequests = new();
     private readonly Dictionary<string, string> _historyTabMap = new();
+    private readonly HashSet<string> _expandedTreeNodeIds = new();
+    private bool _hasLoadedCollectionTree;
+    private bool _isCollectionTreeFilterActive;
     private CollectionNode? _selectedNode;
     private CollectionNode? _contextMenuNode;
     private CancellationTokenSource? _sendCancellation;
@@ -308,43 +312,62 @@ public sealed partial class WorkspacePage : Page
         BuildGroupedHistory();
     }
 
+    private void RefreshHistoryList()
+    {
+        _historyItems.Clear();
+        foreach (var item in _workspace.History.OrderByDescending(x => x.Timestamp).Take(200))
+            _historyItems.Add(item);
+
+        BuildGroupedHistory();
+    }
+
     private void RefreshTree()
     {
-        RequestTreeView.RootNodes.Clear();
-        if (_currentCollection == null)
-            return;
-
+        bool useDefaultExpansion = !_hasLoadedCollectionTree;
         string filter = RequestSearchBox?.Text.Trim() ?? "";
-        var root = BuildRootTree(filter);
-        RequestTreeView.RootNodes.Add(root);
+        bool hasFilter = !string.IsNullOrWhiteSpace(filter);
 
-        // Re-select the current request in the tree
+        if (!_isCollectionTreeFilterActive)
+            CaptureExpandedTreeNodes();
+
+        RequestTreeView.RootNodes.Clear();
+
+        foreach (var collection in _workspace.Collections)
+        {
+            var root = BuildCollectionRoot(collection, filter, useDefaultExpansion);
+            RequestTreeView.RootNodes.Add(root);
+        }
+
+        _hasLoadedCollectionTree = true;
+        _isCollectionTreeFilterActive = hasFilter;
+
         if (_currentRequest != null)
             SelectRequestInTree(_currentRequest.Id);
     }
 
-    private TreeViewNode BuildRootTree(string filter)
+    private TreeViewNode BuildCollectionRoot(ApiCollection collection, string filter, bool useDefaultExpansion)
     {
+        bool hasFilter = !string.IsNullOrWhiteSpace(filter);
         var childItems = new List<TreeViewNode>();
-        foreach (var node in _currentCollection!.Nodes)
+        foreach (var node in collection.Nodes)
         {
-            var childItem = BuildTreeItem(node, filter);
+            var childItem = BuildTreeItem(node, filter, useDefaultExpansion);
             if (childItem != null)
                 childItems.Add(childItem);
         }
 
-        // Use the actual collection Nodes list so context-menu mutations propagate
         var rootCollectionNode = new CollectionNode
         {
-            Name = _currentCollection.Name,
+            Id = collection.Id,
+            Name = collection.Name,
             IsFolder = true,
-            Children = _currentCollection.Nodes
+            Children = collection.Nodes
         };
 
         var rootNode = new TreeViewNode
         {
             Content = rootCollectionNode,
-            IsExpanded = true
+            IsExpanded = hasFilter || useDefaultExpansion || _expandedTreeNodeIds.Contains(collection.Id)
         };
         foreach (var child in childItems)
             rootNode.Children.Add(child);
@@ -352,14 +375,14 @@ public sealed partial class WorkspacePage : Page
         return rootNode;
     }
 
-    private TreeViewNode? BuildTreeItem(CollectionNode node, string filter)
+    private TreeViewNode? BuildTreeItem(CollectionNode node, string filter, bool useDefaultExpansion)
     {
         if (node.IsFolder)
         {
             var childItems = new List<TreeViewNode>();
             foreach (var child in node.Children)
             {
-                var childItem = BuildTreeItem(child, filter);
+                var childItem = BuildTreeItem(child, filter, useDefaultExpansion);
                 if (childItem != null)
                     childItems.Add(childItem);
             }
@@ -373,7 +396,7 @@ public sealed partial class WorkspacePage : Page
             var folderTvItem = new TreeViewNode
             {
                 Content = node,
-                IsExpanded = hasFilter || childItems.Count <= 20
+                IsExpanded = hasFilter || _expandedTreeNodeIds.Contains(node.Id) || (useDefaultExpansion && childItems.Count <= 20)
             };
             foreach (var child in childItems)
                 folderTvItem.Children.Add(child);
@@ -390,6 +413,26 @@ public sealed partial class WorkspacePage : Page
         }
     }
 
+    private void CaptureExpandedTreeNodes()
+    {
+        foreach (TreeViewNode root in RequestTreeView.RootNodes)
+            CaptureExpandedTreeNode(root);
+    }
+
+    private void CaptureExpandedTreeNode(TreeViewNode tvNode)
+    {
+        if (tvNode.Content is CollectionNode node && node.IsFolder)
+        {
+            if (tvNode.IsExpanded)
+                _expandedTreeNodeIds.Add(node.Id);
+            else
+                _expandedTreeNodeIds.Remove(node.Id);
+        }
+
+        foreach (TreeViewNode child in tvNode.Children)
+            CaptureExpandedTreeNode(child);
+    }
+
     private static bool MatchesNodeFilter(CollectionNode node, string filter)
     {
         if (node.Request == null)
@@ -397,8 +440,7 @@ public sealed partial class WorkspacePage : Page
         var req = node.Request;
         return Contains(req.Name, filter) ||
                Contains(req.Method, filter) ||
-               Contains(req.Url, filter) ||
-               Contains(req.GrpcMethod, filter);
+               Contains(req.Url, filter);
     }
 
     private void RequestTreeView_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
@@ -411,6 +453,10 @@ public sealed partial class WorkspacePage : Page
 
         _selectedNode = node;
 
+        var owningCollection = FindOwningCollection(node);
+        if (owningCollection != null)
+            _currentCollection = owningCollection;
+
         if (!node.IsFolder && node.Request != null)
             OpenRequestTab(node.Request.Id, true);
     }
@@ -418,9 +464,8 @@ public sealed partial class WorkspacePage : Page
     private void SelectRequestInTree(string requestId)
     {
         _isUpdatingTabs = true;
-        if (RequestTreeView.RootNodes.Count > 0)
+        foreach (TreeViewNode root in RequestTreeView.RootNodes)
         {
-            var root = RequestTreeView.RootNodes[0];
             foreach (TreeViewNode child in root.Children)
             {
                 if (FindAndSelectNode(child, requestId))
@@ -450,7 +495,16 @@ public sealed partial class WorkspacePage : Page
     {
         HistoryTreeView.RootNodes.Clear();
 
-        var groups = _historyItems
+        string filter = HistorySearchBox?.Text.Trim() ?? "";
+
+        var items = string.IsNullOrEmpty(filter)
+            ? _historyItems.ToList()
+            : _historyItems.Where(x =>
+                (x.Method?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true) ||
+                (x.Url?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true) ||
+                (x.RequestName?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true)).ToList();
+
+        var groups = items
             .GroupBy(x => x.Timestamp.Date)
             .OrderByDescending(g => g.Key)
             .Select(g =>
@@ -538,15 +592,12 @@ public sealed partial class WorkspacePage : Page
         _isLoadingEditor = true;
         NameBox.Text = request.Name;
         UrlBox.Text = request.Url;
-        GrpcMethodBox.Text = request.GrpcMethod;
-        GrpcTlsCheckBox.IsChecked = request.GrpcUseTls;
         HeadersTable.SetItems(request.Headers);
         QueryTable.SetItems(request.Query);
         FormDataTable.SetItems(request.FormData);
         UrlEncodedTable.SetItems(request.UrlEncodedData);
         SetBodyText(request.Body);
         BinaryFilePathText.Text = request.BinaryFilePath ?? "";
-        WsUrlBox.Text = request.Url;
         SelectBodyType(request.BodyType);
         SelectType(request.Type);
         SelectMethod(request.Method);
@@ -582,15 +633,12 @@ public sealed partial class WorkspacePage : Page
         _isLoadingEditor = true;
         NameBox.Text = "";
         UrlBox.Text = "";
-        GrpcMethodBox.Text = "";
-        GrpcTlsCheckBox.IsChecked = false;
         HeadersTable.SetItems(Array.Empty<KeyValuePairItem>());
         QueryTable.SetItems(Array.Empty<KeyValuePairItem>());
         FormDataTable.SetItems(Array.Empty<KeyValuePairItem>());
         UrlEncodedTable.SetItems(Array.Empty<KeyValuePairItem>());
         SetBodyText("");
         BinaryFilePathText.Text = "";
-        WsUrlBox.Text = "";
         SelectBodyType(ApiBodyType.None);
         SelectType(ApiRequestType.Http);
         SelectMethod("GET");
@@ -608,8 +656,6 @@ public sealed partial class WorkspacePage : Page
 
         _currentRequest.Name = NameBox.Text.Trim();
         _currentRequest.Url = UrlBox.Text.Trim();
-        _currentRequest.GrpcMethod = GrpcMethodBox.Text.Trim();
-        _currentRequest.GrpcUseTls = GrpcTlsCheckBox.IsChecked == true;
         _currentRequest.Body = GetBodyText();
         _currentRequest.BodyType = GetSelectedBodyType();
         _currentRequest.Headers = HeadersTable.GetItems();
@@ -821,25 +867,18 @@ public sealed partial class WorkspacePage : Page
         try
         {
             var collection = await _importer.ImportAsync(file.Path);
-            // Convert flat requests to nodes
-            foreach (var req in collection.Requests)
-            {
-                collection.Nodes.Add(new CollectionNode
-                {
-                    Name = req.Name,
-                    IsFolder = false,
-                    Request = req
-                });
-            }
-            collection.Requests.Clear();
 
             _workspace.Collections.Add(collection);
             _currentCollection = collection;
             await PersistWorkspaceAsync();
+
+            var firstRequestNode = RequestHelpers.GetAllRequestNodes(collection.Nodes).FirstOrDefault();
+            if (firstRequestNode?.Request != null)
+                ExpandCollectionPathToRequest(collection, firstRequestNode.Request.Id);
+
             RefreshCollectionSelector();
             RefreshLists();
 
-            var firstRequestNode = RequestHelpers.GetAllRequestNodes(collection.Nodes).FirstOrDefault();
             if (firstRequestNode?.Request != null)
                 SelectRequestInTree(firstRequestNode.Request.Id);
         }
@@ -847,6 +886,92 @@ public sealed partial class WorkspacePage : Page
         {
             DisplayResponseBody(ex.ToString());
         }
+    }
+
+    private async void ImportPostmanButton_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileOpenPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, App.Current.MainWindowHandle);
+        picker.FileTypeFilter.Add(".json");
+
+        var file = await picker.PickSingleFileAsync();
+        if (file == null)
+            return;
+
+        try
+        {
+            var collection = await _postmanImporter.ImportAsync(file.Path);
+
+            if (collection.ImportedEnvironment != null &&
+                collection.ImportedEnvironment.Variables.Count > 0)
+            {
+                var env = _workspace.GetActiveEnvironment();
+                if (env != null)
+                {
+                    foreach (var v in collection.ImportedEnvironment.Variables)
+                    {
+                        var existing = env.Variables.FirstOrDefault(x =>
+                            string.Equals(x.Key, v.Key, StringComparison.OrdinalIgnoreCase));
+                        if (existing != null)
+                            existing.Value = v.Value;
+                        else
+                            env.Variables.Add(new KeyValuePairItem
+                            {
+                                Key = v.Key,
+                                Value = v.Value,
+                                Enabled = true
+                            });
+                    }
+                }
+                collection.ImportedEnvironment = null;
+            }
+
+            _workspace.Collections.Add(collection);
+            _currentCollection = collection;
+            await PersistWorkspaceAsync();
+
+            var firstRequestNode = RequestHelpers.GetAllRequestNodes(collection.Nodes).FirstOrDefault();
+            if (firstRequestNode?.Request != null)
+                ExpandCollectionPathToRequest(collection, firstRequestNode.Request.Id);
+
+            RefreshCollectionSelector();
+            RefreshLists();
+            RefreshEnvironmentList();
+
+            if (firstRequestNode?.Request != null)
+                SelectRequestInTree(firstRequestNode.Request.Id);
+        }
+        catch (Exception ex)
+        {
+            DisplayResponseBody(ex.ToString());
+        }
+    }
+
+    private void ExpandCollectionPathToRequest(ApiCollection collection, string requestId)
+    {
+        _expandedTreeNodeIds.Add(collection.Id);
+        AddExpandedFolderPath(collection.Nodes, requestId);
+    }
+
+    private bool AddExpandedFolderPath(IEnumerable<CollectionNode> nodes, string requestId)
+    {
+        foreach (var node in nodes)
+        {
+            if (!node.IsFolder)
+            {
+                if (node.Request?.Id == requestId)
+                    return true;
+                continue;
+            }
+
+            if (AddExpandedFolderPath(node.Children, requestId))
+            {
+                _expandedTreeNodeIds.Add(node.Id);
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -871,8 +996,7 @@ public sealed partial class WorkspacePage : Page
                     node.Name = string.IsNullOrWhiteSpace(_currentRequest.Name) ? "Untitled" : _currentRequest.Name;
             }
             await PersistWorkspaceAsync();
-            RefreshLists();
-            RefreshOpenRequestTabs();
+            RefreshHistoryList();
             SelectRequestInTree(_currentRequest.Id);
         }
         else
@@ -1000,6 +1124,13 @@ public sealed partial class WorkspacePage : Page
 
     private async void SendButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_sendCancellation != null)
+        {
+            _sendCancellation.Cancel();
+            ResponseSummaryText.Text = "正在取消...";
+            return;
+        }
+
         if (_currentRequest == null)
             return;
 
@@ -1020,8 +1151,7 @@ public sealed partial class WorkspacePage : Page
         _sendCancellation = new CancellationTokenSource();
         SendProgressRing.Visibility = Visibility.Visible;
         SendProgressRing.IsActive = true;
-        SendButton.IsEnabled = false;
-        CancelSendButton.Visibility = Visibility.Visible;
+        SendButtonText.Text = "Cancel";
         ResponseSummaryText.Text = "发送中...";
         SetResponseMetrics(null, null, null, false);
         RichTextHelper.ApplyPlainText(ResponseBodyRichTextBlock, "");
@@ -1050,10 +1180,8 @@ public sealed partial class WorkspacePage : Page
             {
                 RequestName = _currentRequest.Name,
                 Type = _currentRequest.Type,
-                Method = _currentRequest.Type == ApiRequestType.Grpc ? "POST" : _currentRequest.Method,
-                Url = _currentRequest.Type == ApiRequestType.Grpc
-                    ? $"{resolvedRequest.Url}/{resolvedRequest.GrpcMethod}"
-                    : RequestHelpers.BuildUrl(resolvedRequest),
+                Method = _currentRequest.Method,
+                Url = RequestHelpers.BuildUrl(resolvedRequest),
                 StatusCode = response.StatusCode,
                 ElapsedMilliseconds = response.ElapsedMilliseconds,
                 IsSuccess = response.IsSuccess,
@@ -1066,15 +1194,13 @@ public sealed partial class WorkspacePage : Page
                 _workspace.History = _workspace.History.OrderByDescending(x => x.Timestamp).Take(500).ToList();
 
             await PersistWorkspaceAsync();
-            RefreshLists();
-            RefreshOpenRequestTabs();
+            RefreshHistoryList();
         }
         finally
         {
             _sendCancellation.Dispose();
             _sendCancellation = null;
-            SendButton.IsEnabled = true;
-            CancelSendButton.Visibility = Visibility.Collapsed;
+            SendButtonText.Text = "Send";
             SendProgressRing.IsActive = false;
             SendProgressRing.Visibility = Visibility.Collapsed;
         }
@@ -1304,11 +1430,9 @@ public sealed partial class WorkspacePage : Page
 
     private void RequestSearchBox_TextChanged(object sender, TextChangedEventArgs e) => RefreshLists();
 
-    private void CancelSendButton_Click(object sender, RoutedEventArgs e)
-    {
-        _sendCancellation?.Cancel();
-        ResponseSummaryText.Text = "正在取消...";
-    }
+    private void HistorySearchBox_TextChanged(object sender, TextChangedEventArgs e) => BuildGroupedHistory();
+
+
 
     // CollectionComboBox removed — collection switching via tree root node
 
@@ -1752,14 +1876,15 @@ public sealed partial class WorkspacePage : Page
         bool isJson = bodyType == ApiBodyType.Json;
         bool isXml = bodyType == ApiBodyType.Xml;
         bool isHighlighted = isJson || isXml;
+        bool isWebSocket = _currentRequest?.Type == ApiRequestType.WebSocket;
 
-        BodyBox.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
-        FormDataTable.Visibility = isFormData ? Visibility.Visible : Visibility.Collapsed;
-        UrlEncodedTable.Visibility = isUrlEncoded ? Visibility.Visible : Visibility.Collapsed;
-        BinaryInfoPanel.Visibility = isBinary ? Visibility.Visible : Visibility.Collapsed;
-        SelectFileButton.Visibility = isBinary ? Visibility.Visible : Visibility.Collapsed;
-        BinaryFilePathText.Visibility = (isBinary && !string.IsNullOrWhiteSpace(BinaryFilePathText.Text)) ? Visibility.Visible : Visibility.Collapsed;
-        RawFormatComboBox.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
+        BodyBox.Visibility = (isRaw || isWebSocket) ? Visibility.Visible : Visibility.Collapsed;
+        FormDataTable.Visibility = (isFormData && !isWebSocket) ? Visibility.Visible : Visibility.Collapsed;
+        UrlEncodedTable.Visibility = (isUrlEncoded && !isWebSocket) ? Visibility.Visible : Visibility.Collapsed;
+        BinaryInfoPanel.Visibility = (isBinary && !isWebSocket) ? Visibility.Visible : Visibility.Collapsed;
+        SelectFileButton.Visibility = (isBinary && !isWebSocket) ? Visibility.Visible : Visibility.Collapsed;
+        BinaryFilePathText.Visibility = (isBinary && !isWebSocket && !string.IsNullOrWhiteSpace(BinaryFilePathText.Text)) ? Visibility.Visible : Visibility.Collapsed;
+        RawFormatComboBox.Visibility = (isRaw && !isWebSocket) ? Visibility.Visible : Visibility.Collapsed;
 
         if (isHighlighted)
         {
@@ -1954,7 +2079,13 @@ public sealed partial class WorkspacePage : Page
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = this.XamlRoot
         };
-        var textBox = new TextBox { Text = env.Name, PlaceholderText = "Environment name" };
+        var textBox = new TextBox
+        {
+            Text = env.Name,
+            PlaceholderText = "Environment name",
+            IsSpellCheckEnabled = false,
+            IsTextPredictionEnabled = false
+        };
         dialog.Content = textBox;
         var result = await dialog.ShowAsync();
         if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(textBox.Text))
@@ -2027,7 +2158,13 @@ public sealed partial class WorkspacePage : Page
             XamlRoot = this.XamlRoot
         };
 
-        var textBox = new TextBox { Text = _editingEnvironment.Name, PlaceholderText = "Environment name" };
+        var textBox = new TextBox
+        {
+            Text = _editingEnvironment.Name,
+            PlaceholderText = "Environment name",
+            IsSpellCheckEnabled = false,
+            IsTextPredictionEnabled = false
+        };
         dialog.Content = textBox;
 
         var result = await dialog.ShowAsync();
@@ -2042,19 +2179,29 @@ public sealed partial class WorkspacePage : Page
 
     private void UpdateTypeVisibility(ApiRequestType type)
     {
-        bool isGrpc = type == ApiRequestType.Grpc;
         bool isWebSocket = type == ApiRequestType.WebSocket;
         bool isHttp = type == ApiRequestType.Http;
 
-        GrpcMethodBox.Visibility = isGrpc ? Visibility.Visible : Visibility.Collapsed;
-        GrpcTlsCheckBox.Visibility = isGrpc ? Visibility.Visible : Visibility.Collapsed;
         MethodComboBox.IsEnabled = isHttp;
+        MethodComboBox.Visibility = isWebSocket ? Visibility.Collapsed : Visibility.Visible;
+        WsConnectionStatusPanel.Visibility = isWebSocket ? Visibility.Visible : Visibility.Collapsed;
+        MethodColumn.Width = isWebSocket ? new GridLength(112) : new GridLength(92);
+        SendButton.Visibility = isWebSocket ? Visibility.Collapsed : Visibility.Visible;
+        WsConnectButton.Visibility = isWebSocket ? Visibility.Visible : Visibility.Collapsed;
+        BodyOptionsGrid.Visibility = isWebSocket ? Visibility.Collapsed : Visibility.Visible;
+        WsMessageActions.Visibility = isWebSocket ? Visibility.Visible : Visibility.Collapsed;
+        ResponseTabView.Visibility = isWebSocket ? Visibility.Collapsed : Visibility.Visible;
+        WsMessageScrollViewer.Visibility = isWebSocket ? Visibility.Visible : Visibility.Collapsed;
+        WsClearButton.Visibility = isWebSocket ? Visibility.Visible : Visibility.Collapsed;
+        BodyTabItem.Header = isWebSocket ? "Message" : "Body";
+        AuthorizationTabItem.Visibility = isWebSocket ? Visibility.Collapsed : Visibility.Visible;
+        UrlBox.PlaceholderText = isWebSocket ? "ws://localhost:8080/ws" : "https://api.example.com/v1/users?page=1";
+        if (isWebSocket)
+            RequestConfigTabView.SelectedItem = BodyTabItem;
 
-        // Update breadcrumb badge color
         string badgeColor = type switch
         {
             ApiRequestType.Http => "#16A34A",
-            ApiRequestType.Grpc => "#2563EB",
             ApiRequestType.WebSocket => "#9333EA",
             _ => "#64748B"
         };
@@ -2065,12 +2212,6 @@ public sealed partial class WorkspacePage : Page
                 Convert.ToByte(badgeColor[5..7], 16)));
         BreadcrumbTypeText.Text = type.ToString().ToUpper();
 
-        // Show/hide WebSocket panel vs. HTTP/gRPC panels
-        WebSocketPanel.Visibility = isWebSocket ? Visibility.Visible : Visibility.Collapsed;
-        // Hide the normal request body and response panels for WebSocket
-        // (they are children of RequestEditorArea rows 1-4)
-        // We use Grid.Row visibility indirectly by overlaying WebSocketPanel
-
         if (isWebSocket)
         {
             SelectMethod("CONNECT");
@@ -2078,12 +2219,8 @@ public sealed partial class WorkspacePage : Page
                 _currentRequest.Method = "CONNECT";
             ResetWsStatus();
         }
-        else if (type == ApiRequestType.Grpc)
-        {
-            SelectMethod("POST");
-            if (_currentRequest != null)
-                _currentRequest.Method = "POST";
-        }
+
+        UpdateBodyVisibility();
     }
 
     private void ResetWsStatus()
@@ -2094,15 +2231,15 @@ public sealed partial class WorkspacePage : Page
         WsConnectButton.Content = "Connect";
     }
 
-    private void WsUrlBox_TextChanged(object sender, TextChangedEventArgs e)
+    private void RemovedUrlBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (_isLoadingEditor || _currentRequest == null)
             return;
         // Sync WsUrlBox → UrlBox (and thus _currentRequest.Url)
         _isLoadingEditor = true;
-        UrlBox.Text = WsUrlBox.Text;
+        UrlBox.Text = UrlBox.Text;
         _isLoadingEditor = false;
-        _currentRequest.Url = WsUrlBox.Text.Trim();
+        _currentRequest.Url = UrlBox.Text.Trim();
     }
 
     private void UpdateBreadcrumb()
@@ -2117,7 +2254,6 @@ public sealed partial class WorkspacePage : Page
         string typeLabel = _currentRequest.Type switch
         {
             ApiRequestType.Http => "HTTP",
-            ApiRequestType.Grpc => "gRPC",
             ApiRequestType.WebSocket => "WebSocket",
             _ => "HTTP"
         };
@@ -2147,8 +2283,8 @@ public sealed partial class WorkspacePage : Page
         }
         else
         {
-            // Temporary request — no collection context
-            pathText = isUnsavedRequest ? "Unsaved" : "";
+            // Temporary requests do not have a collection path.
+            pathText = "";
         }
         BreadcrumbCollectionText.Text = pathText;
         BreadcrumbSeparator.Visibility = string.IsNullOrEmpty(pathText) ? Visibility.Collapsed : Visibility.Visible;
@@ -2252,8 +2388,7 @@ public sealed partial class WorkspacePage : Page
         else
         {
             ApplyEditor();
-            // Use WsUrlBox value for WebSocket connection
-            string wsUrl = WsUrlBox.Text.Trim();
+            string wsUrl = UrlBox.Text.Trim();
             if (!string.IsNullOrWhiteSpace(wsUrl))
                 _currentRequest.Url = wsUrl;
             // Show connecting state
@@ -2278,7 +2413,7 @@ public sealed partial class WorkspacePage : Page
             WsStatusText.Text = "Connected";
             AppendWsMessage($"[Connected] {response.Summary}", false);
             if (!string.IsNullOrWhiteSpace(response.Body))
-                AppendWsMessage(response.Body, false);
+                AppendWsMessages(response.Body, false);
         }
         catch (Exception ex)
         {
@@ -2296,10 +2431,13 @@ public sealed partial class WorkspacePage : Page
 
     private void WsSendMessageButton_Click(object sender, RoutedEventArgs e)
     {
-        string msg = WsMessageBox.Text;
+        ApplyEditor();
+        string msg = GetBodyText();
         if (string.IsNullOrWhiteSpace(msg)) return;
         AppendWsMessage($"↑ {msg}", true);
-        WsMessageBox.Text = "";
+        if (_currentRequest != null)
+            _currentRequest.Body = msg;
+        _ = ConnectWebSocketAsync();
     }
 
     private void WsClearButton_Click(object sender, RoutedEventArgs e)
@@ -2321,6 +2459,22 @@ public sealed partial class WorkspacePage : Page
         };
         WsMessageList.Children.Add(tb);
         WsMessageScrollViewer.ChangeView(null, double.MaxValue, null);
+    }
+
+    private void AppendWsMessages(string text, bool isSent)
+    {
+        var messages = text
+            .Replace("\r\n", "\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (messages.Length == 0)
+        {
+            AppendWsMessage(text, isSent);
+            return;
+        }
+
+        foreach (string message in messages)
+            AppendWsMessage($"↓ {message}", isSent);
     }
 
     private void SelectType(ApiRequestType type)
@@ -2360,7 +2514,16 @@ public sealed partial class WorkspacePage : Page
         {
             var actionPanel = grid.FindName("NodeActionPanel") as UIElement;
             if (actionPanel != null)
+            {
                 actionPanel.Visibility = Visibility.Visible;
+
+                if (grid.DataContext is TreeViewNode tvNode && tvNode.Content is CollectionNode cn)
+                {
+                    var addBtn = grid.FindName("NodeAddButton") as UIElement;
+                    if (addBtn != null)
+                        addBtn.Visibility = cn.IsFolder ? Visibility.Visible : Visibility.Collapsed;
+                }
+            }
         }
     }
 
@@ -2381,6 +2544,11 @@ public sealed partial class WorkspacePage : Page
 
         _contextMenuNode = node;
         _selectedNode = node;
+
+        var owningCollection = FindOwningCollection(node);
+        if (owningCollection != null)
+            _currentCollection = owningCollection;
+
         await AddRequestToNode(node);
     }
 
@@ -2392,14 +2560,40 @@ public sealed partial class WorkspacePage : Page
         _contextMenuNode = node;
         _selectedNode = node;
 
+        var owningCollection = FindOwningCollection(node);
+        if (owningCollection != null)
+            _currentCollection = owningCollection;
+
         var flyout = (MenuFlyout)Resources["TreeNodeFlyout"];
+        UpdateFlyoutForNode(flyout, node);
         flyout.ShowAt(btn);
     }
 
-    private Task AddRequestToNode(CollectionNode node)
+    private async Task AddRequestToNode(CollectionNode node)
     {
-        CreateUnsavedRequestTab();
-        return Task.CompletedTask;
+        if (_currentCollection == null || node == null || !node.IsFolder)
+            return;
+
+        var request = new ApiRequest
+        {
+            Name = "新建请求",
+            Type = ApiRequestType.Http,
+            Method = "GET",
+            Url = "https://"
+        };
+
+        var requestNode = new CollectionNode
+        {
+            Name = request.Name,
+            IsFolder = false,
+            Request = request
+        };
+
+        node.Children.Add(requestNode);
+        _currentRequest = request;
+        await PersistWorkspaceAsync();
+        OpenRequestTab(request.Id, true);
+        RefreshLists();
     }
 
     private void RequestTreeView_RightTapped(object sender, RightTappedRoutedEventArgs e)
@@ -2407,7 +2601,6 @@ public sealed partial class WorkspacePage : Page
         if (e.OriginalSource is not DependencyObject element)
             return;
 
-        // Walk up the visual tree to find the TreeViewItem
         var treeViewItem = FindAncestor<TreeViewItem>(element);
         if (treeViewItem?.Content is not CollectionNode collectionNode)
             return;
@@ -2415,7 +2608,12 @@ public sealed partial class WorkspacePage : Page
         _contextMenuNode = collectionNode;
         _selectedNode = collectionNode;
 
+        var owningCollection = FindOwningCollection(collectionNode);
+        if (owningCollection != null)
+            _currentCollection = owningCollection;
+
         var flyout = (MenuFlyout)Resources["TreeNodeFlyout"];
+        UpdateFlyoutForNode(flyout, collectionNode);
         flyout.ShowAt(RequestTreeView, e.GetPosition(RequestTreeView));
     }
 
@@ -2431,7 +2629,50 @@ public sealed partial class WorkspacePage : Page
         return null;
     }
 
-    private void ContextAddRequest_Click(object sender, RoutedEventArgs e) => CreateUnsavedRequestTab();
+    private void UpdateFlyoutForNode(MenuFlyout flyout, CollectionNode node)
+    {
+        bool isFolder = node.IsFolder;
+        for (int i = 0; i < flyout.Items.Count; i++)
+        {
+            var item = flyout.Items[i];
+            if (item is MenuFlyoutItem mfi)
+            {
+                if (mfi.Name == "FlyoutNewRequest" || mfi.Name == "FlyoutNewFolder")
+                    mfi.Visibility = isFolder ? Visibility.Visible : Visibility.Collapsed;
+            }
+            else if (item is MenuFlyoutSeparator sep && sep.Name == "FlyoutNewSeparator")
+            {
+                sep.Visibility = isFolder ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+    }
+
+    private async void ContextAddRequest_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentCollection == null || _contextMenuNode == null || !_contextMenuNode.IsFolder)
+            return;
+
+        var request = new ApiRequest
+        {
+            Name = "新建请求",
+            Type = ApiRequestType.Http,
+            Method = "GET",
+            Url = "https://"
+        };
+
+        var requestNode = new CollectionNode
+        {
+            Name = request.Name,
+            IsFolder = false,
+            Request = request
+        };
+
+        _contextMenuNode.Children.Add(requestNode);
+        _currentRequest = request;
+        await PersistWorkspaceAsync();
+        OpenRequestTab(request.Id, true);
+        RefreshLists();
+    }
 
     private async void ContextAddSubFolder_Click(object sender, RoutedEventArgs e)
     {
@@ -2460,14 +2701,32 @@ public sealed partial class WorkspacePage : Page
         if (_contextMenuNode == null)
             return;
 
+        if (IsCollectionRootNode(_contextMenuNode))
+        {
+            var collection = FindOwningCollection(_contextMenuNode);
+            if (collection == null)
+                return;
+
+            string newName = await ShowInputDialogAsync("重命名集合", "集合名称", collection.Name);
+            if (string.IsNullOrWhiteSpace(newName))
+                return;
+
+            collection.Name = newName;
+            _contextMenuNode.Name = newName;
+
+            await PersistWorkspaceAsync();
+            RefreshLists();
+            return;
+        }
+
         string title = _contextMenuNode.IsFolder ? "重命名文件夹" : "重命名请求";
-        string newName = await ShowInputDialogAsync(title, "新名称", _contextMenuNode.Name);
-        if (string.IsNullOrWhiteSpace(newName))
+        string nodeNewName = await ShowInputDialogAsync(title, "新名称", _contextMenuNode.Name);
+        if (string.IsNullOrWhiteSpace(nodeNewName))
             return;
 
-        _contextMenuNode.Name = newName;
+        _contextMenuNode.Name = nodeNewName;
         if (_contextMenuNode.Request != null)
-            _contextMenuNode.Request.Name = newName;
+            _contextMenuNode.Request.Name = nodeNewName;
 
         await PersistWorkspaceAsync();
         RefreshLists();
@@ -2502,19 +2761,49 @@ public sealed partial class WorkspacePage : Page
 
     private async void ContextDelete_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentCollection == null || _contextMenuNode == null)
+        if (_contextMenuNode == null)
+            return;
+
+        if (IsCollectionRootNode(_contextMenuNode))
+        {
+            var collection = FindOwningCollection(_contextMenuNode);
+            if (collection == null)
+                return;
+
+            var deletedRequestIds = RequestHelpers.GetAllRequestNodes(collection.Nodes)
+                .Where(x => x.Request != null)
+                .Select(x => x.Request!.Id)
+                .ToHashSet();
+            _workspace.Collections.Remove(collection);
+            _workspace.OpenRequestTabIds.RemoveAll(deletedRequestIds.Contains);
+            if (deletedRequestIds.Contains(_workspace.ActiveRequestTabId))
+                _workspace.ActiveRequestTabId = "";
+            if (_workspace.Collections.Count == 0)
+                _workspace.Collections.Add(new ApiCollection { Name = "默认集合" });
+            _currentCollection = _workspace.Collections.FirstOrDefault();
+            if (deletedRequestIds.Contains(_currentRequest?.Id ?? ""))
+            {
+                _currentRequest = null;
+                ClearEditor();
+            }
+
+            await PersistWorkspaceAsync();
+            RefreshLists();
+            RefreshOpenRequestTabs();
+            return;
+        }
+
+        if (_currentCollection == null)
             return;
 
         if (_contextMenuNode.IsFolder)
         {
-            // Delete folder and all its contents
             var parentList = FindNodeParentList(_currentCollection.Nodes, _contextMenuNode);
             if (parentList != null)
                 parentList.Remove(_contextMenuNode);
             else
                 _currentCollection.Nodes.Remove(_contextMenuNode);
 
-            // Remove any open tabs for requests inside the deleted folder
             var deletedIds = RequestHelpers.GetAllRequestNodes(new List<CollectionNode> { _contextMenuNode })
                 .Where(x => x.Request != null).Select(x => x.Request!.Id).ToHashSet();
             _workspace.OpenRequestTabIds.RemoveAll(deletedIds.Contains);
@@ -2570,6 +2859,41 @@ public sealed partial class WorkspacePage : Page
                 return found;
         }
         return null;
+    }
+
+    private ApiCollection? FindOwningCollection(CollectionNode node)
+    {
+        if (node == null)
+            return _currentCollection;
+
+        var collectionById = _workspace.Collections.FirstOrDefault(c => c.Id == node.Id);
+        if (collectionById != null)
+            return collectionById;
+
+        foreach (var collection in _workspace.Collections)
+        {
+            if (IsNodeInTree(collection.Nodes, node))
+                return collection;
+        }
+
+        return _currentCollection;
+    }
+
+    private static bool IsNodeInTree(List<CollectionNode> nodes, CollectionNode target)
+    {
+        foreach (var node in nodes)
+        {
+            if (ReferenceEquals(node, target))
+                return true;
+            if (IsNodeInTree(node.Children, target))
+                return true;
+        }
+        return false;
+    }
+
+    private bool IsCollectionRootNode(CollectionNode node)
+    {
+        return _workspace.Collections.Any(c => c.Id == node.Id);
     }
 
     private void OpenRequestTabView_RightTapped(object sender, RightTappedRoutedEventArgs e)
@@ -2670,6 +2994,21 @@ public sealed partial class WorkspacePage : Page
         _ = PersistWorkspaceAsync();
     }
 
+    private void TabContext_CloseAll_Click(object sender, RoutedEventArgs e)
+    {
+        var toRemove = _workspace.OpenRequestTabIds.ToList();
+        foreach (var id in toRemove)
+        {
+            _workspace.OpenRequestTabIds.Remove(id);
+            RemoveUnsavedRequestIfClosed(id);
+        }
+
+        _workspace.ActiveRequestTabId = "";
+        RefreshOpenRequestTabs();
+        ClearEditor();
+        _ = PersistWorkspaceAsync();
+    }
+
     private void CloseTabById(string requestId)
     {
         int index = _workspace.OpenRequestTabIds.IndexOf(requestId);
@@ -2702,7 +3041,9 @@ public sealed partial class WorkspacePage : Page
         {
             PlaceholderText = placeholder,
             Text = defaultValue,
-            MinWidth = 300
+            MinWidth = 300,
+            IsSpellCheckEnabled = false,
+            IsTextPredictionEnabled = false
         };
         textBox.SelectAll();
 
