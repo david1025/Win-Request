@@ -4,11 +4,13 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using Microsoft.UI.Text;
 using Windows.Storage.Pickers;
 using Windows.UI;
 using WinRequest.Models;
@@ -18,6 +20,9 @@ namespace WinRequest.Pages;
 
 public sealed partial class WorkspacePage : Page
 {
+    private const double ExpandedSidebarWidth = 300;
+    private const double ExpandedSidebarMinWidth = 260;
+    private const double CompactSidebarWidth = 52;
     private readonly WorkspaceStorage _storage = new();
     private readonly RequestExecutionService _executor = new();
     private readonly OpenApiImporter _importer = new();
@@ -26,6 +31,8 @@ public sealed partial class WorkspacePage : Page
     private ApiWorkspace _workspace = new();
     private ApiCollection? _currentCollection;
     private ApiRequest? _currentRequest;
+    private readonly List<ApiRequest> _unsavedRequests = new();
+    private readonly Dictionary<string, string> _historyTabMap = new();
     private CollectionNode? _selectedNode;
     private CollectionNode? _contextMenuNode;
     private CancellationTokenSource? _sendCancellation;
@@ -34,15 +41,23 @@ public sealed partial class WorkspacePage : Page
     private bool _isSyncingQueryUrl;
     private bool _isNavigatingToSettings;
     private bool _isLoadingInlineSettings;
+    private bool _isApplyingBodyHighlight;
     private string _rightClickTabId = "";
     private VariableAutoComplete? _urlAutoComplete;
-    private VariableAutoComplete? _bodyAutoComplete;
+    private readonly DispatcherTimer _highlightDebounceTimer;
+    private EnvironmentProfile? _editingEnvironment;
 
     public WorkspacePage()
     {
+        _highlightDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        _highlightDebounceTimer.Tick += (_, _) =>
+        {
+            _highlightDebounceTimer.Stop();
+            RefreshBodyHighlight();
+        };
+
         InitializeComponent();
         MainNav.SelectedItem = CollectionsNavItem;
-        HistoryListView.ItemsSource = _historyItems;
         HeadersTable.ItemsChanged += Table_ItemsChanged;
         QueryTable.ItemsChanged += Table_ItemsChanged;
         FormDataTable.ItemsChanged += Table_ItemsChanged;
@@ -98,8 +113,7 @@ public sealed partial class WorkspacePage : Page
         {
             ["collections"] = CollectionsSidebarPanel,
             ["environments"] = EnvironmentsSidebarPanel,
-            ["history"] = HistorySidebarPanel,
-            ["profile"] = ProfileSidebarPanel
+            ["history"] = HistorySidebarPanel
         };
 
         // If section is empty or unknown, collapse all panels
@@ -117,19 +131,41 @@ public sealed partial class WorkspacePage : Page
         foreach (var item in panelMap)
             item.Value.Visibility = item.Key == section ? Visibility.Visible : Visibility.Collapsed;
         SettingsSidebarPanel.Visibility = Visibility.Collapsed;
+
+        // Hide environment overlay when switching sections
+        if (section != "environments")
+        {
+            EnvironmentOverlayPanel.Visibility = Visibility.Collapsed;
+            if (_editingEnvironment != null)
+            {
+                ApplyEnvironmentEditor();
+                _editingEnvironment = null;
+            }
+            RequestEditorArea.Visibility = Visibility.Visible;
+        }
     }
 
     private void ShowInlineSettings()
     {
         LoadInlineSettings();
         RequestEditorArea.Visibility = Visibility.Collapsed;
+        EnvironmentOverlayPanel.Visibility = Visibility.Collapsed;
         SettingsOverlayPanel.Visibility = Visibility.Visible;
+        // Keep the compact navigation rail visible, but hide the sidebar content.
+        RootGrid.ColumnDefinitions[0].MinWidth = CompactSidebarWidth;
+        RootGrid.ColumnDefinitions[0].Width = new GridLength(CompactSidebarWidth);
+        RootGrid.ColumnDefinitions[1].Width = new GridLength(0);
     }
 
     private void HideInlineSettings()
     {
         SettingsOverlayPanel.Visibility = Visibility.Collapsed;
+        EnvironmentOverlayPanel.Visibility = Visibility.Collapsed;
         RequestEditorArea.Visibility = Visibility.Visible;
+        // Restore the full navigation/sidebar columns.
+        RootGrid.ColumnDefinitions[0].MinWidth = ExpandedSidebarMinWidth;
+        RootGrid.ColumnDefinitions[0].Width = new GridLength(ExpandedSidebarWidth);
+        RootGrid.ColumnDefinitions[1].Width = GridLength.Auto;
     }
 
     private void LoadInlineSettings()
@@ -183,7 +219,7 @@ public sealed partial class WorkspacePage : Page
     private async void InlineSaveSettingsButton_Click(object sender, RoutedEventArgs e)
     {
         ApplyInlineSettings();
-        await _storage.SaveAsync(_workspace);
+        await PersistWorkspaceAsync();
         ApplyEditorFonts();
         InlineSettingsStatusText.Text = "设置已保存。工作台编辑器会在打开或切换请求时使用新的字体设置。";
     }
@@ -191,7 +227,7 @@ public sealed partial class WorkspacePage : Page
     private async void InlineCheckUpdateButton_Click(object sender, RoutedEventArgs e)
     {
         ApplyInlineSettings();
-        await _storage.SaveAsync(_workspace);
+        await PersistWorkspaceAsync();
         InlineUpdateProgressRing.Visibility = Visibility.Visible;
         InlineUpdateProgressRing.IsActive = true;
         InlineUpdateResultText.Text = "正在检查 GitHub 最新 Release...";
@@ -229,25 +265,18 @@ public sealed partial class WorkspacePage : Page
         App.Current.ApplySettings(_workspace.Settings);
         ApplyEditorFonts();
         _isLoadingEditor = true;
-        EnvironmentTable.SetItems(_workspace.EnvironmentVariables);
+        RefreshEnvironmentList();
         _isLoadingEditor = false;
 
-        // Initialize {{variable}} autocomplete on URL box and Body box
+        // Initialize {{variable}} autocomplete on URL box
         _urlAutoComplete = new VariableAutoComplete(UrlBox, AutoCompleteHost, GetEnvironmentVariableNames);
-        _bodyAutoComplete = new VariableAutoComplete(BodyBox, AutoCompleteHost, GetEnvironmentVariableNames);
 
         _currentCollection = _workspace.Collections.FirstOrDefault();
         RefreshCollectionSelector();
         RefreshLists();
         RestoreOpenRequestTabs();
         if (_workspace.OpenRequestTabIds.Count == 0)
-        {
-            var firstNode = _currentCollection != null
-                ? RequestHelpers.GetAllRequestNodes(_currentCollection.Nodes).FirstOrDefault()
-                : null;
-            if (firstNode?.Request != null)
-                SelectRequestInTree(firstNode.Request.Id);
-        }
+            ClearEditor();
     }
 
     private void ApplyEditorFonts()
@@ -275,6 +304,8 @@ public sealed partial class WorkspacePage : Page
         _historyItems.Clear();
         foreach (var item in _workspace.History.OrderByDescending(x => x.Timestamp).Take(200))
             _historyItems.Add(item);
+
+        BuildGroupedHistory();
     }
 
     private void RefreshTree()
@@ -413,22 +444,95 @@ public sealed partial class WorkspacePage : Page
         }
         return false;
     }
-
-
-    private void HistoryListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    
+    
+    private void BuildGroupedHistory()
     {
-        if (HistoryListView.SelectedItem is not RequestHistoryEntry entry)
-            return;
+        HistoryTreeView.RootNodes.Clear();
 
-        ResponseSummaryText.Text = $"历史：{entry.DisplayText}";
-        SetResponseMetrics(entry.StatusCode?.ToString() ?? (entry.IsSuccess ? "OK" : "ERR"), entry.ElapsedMilliseconds, null, entry.IsSuccess);
-        ResponseHeadersBox.Text = entry.ResponseHeaders;
-        string body = JsonFormatService.TryFormat(entry.ResponseBody, out string formatted)
-            ? formatted
-            : entry.ResponseBody;
-        DisplayResponseBody(body);
+        var groups = _historyItems
+            .GroupBy(x => x.Timestamp.Date)
+            .OrderByDescending(g => g.Key)
+            .Select(g =>
+            {
+                DateTime today = DateTime.Today;
+                string label = g.Key == today ? "Today"
+                    : g.Key == today.AddDays(-1) ? "Yesterday"
+                    : g.Key.ToString("MMM dd");
+                return new HistoryDateGroup
+                {
+                    DateLabel = label,
+                    Count = g.Count(),
+                    Entries = g.OrderBy(x => x.Timestamp).Reverse().ToList()
+                };
+            }).ToList();
+
+        foreach (var group in groups)
+        {
+            var dateNode = new TreeViewNode
+            {
+                Content = group,
+                IsExpanded = true
+            };
+
+            foreach (var entry in group.Entries)
+            {
+                dateNode.Children.Add(new TreeViewNode { Content = entry });
+            }
+
+            HistoryTreeView.RootNodes.Add(dateNode);
+        }
     }
 
+    private void HistoryTreeView_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItem is not TreeViewNode node)
+            return;
+
+        if (node.Content is RequestHistoryEntry entry)
+        {
+            OpenHistoryEntryAsTab(entry);
+        }
+    }
+
+    private void OpenHistoryEntryAsTab(RequestHistoryEntry entry)
+    {
+        // Check if this history entry already has an open tab
+        if (_historyTabMap.TryGetValue(entry.Id, out string? existingId) &&
+            !string.IsNullOrEmpty(existingId) &&
+            _workspace.OpenRequestTabIds.Contains(existingId))
+        {
+            _workspace.ActiveRequestTabId = existingId;
+            RefreshOpenRequestTabs();
+            LoadRequestById(existingId);
+            _ = PersistWorkspaceAsync();
+            return;
+        }
+
+        string baseUrl = entry.Url ?? "";
+        try
+        {
+            var uri = new Uri(baseUrl);
+            baseUrl = uri.GetLeftPart(UriPartial.Path);
+        }
+        catch { }
+
+        var request = new ApiRequest
+        {
+            Name = $"{entry.Method} {baseUrl}",
+            Type = ApiRequestType.Http,
+            Method = entry.Method ?? "GET",
+            Url = entry.Url ?? "",
+            Body = entry.RequestBody ?? ""
+        };
+
+        _unsavedRequests.Add(request);
+        _historyTabMap[entry.Id] = request.Id;
+        _currentRequest = request;
+        OpenRequestTab(request.Id, true);
+        RefreshLists();
+    }
+    
     private void LoadEditor(ApiRequest request)
     {
         _isLoadingEditor = true;
@@ -440,7 +544,7 @@ public sealed partial class WorkspacePage : Page
         QueryTable.SetItems(request.Query);
         FormDataTable.SetItems(request.FormData);
         UrlEncodedTable.SetItems(request.UrlEncodedData);
-        BodyBox.Text = request.Body;
+        SetBodyText(request.Body);
         BinaryFilePathText.Text = request.BinaryFilePath ?? "";
         WsUrlBox.Text = request.Url;
         SelectBodyType(request.BodyType);
@@ -449,6 +553,7 @@ public sealed partial class WorkspacePage : Page
         UpdateTypeVisibility(request.Type);
         UpdateBodyVisibility();
         UpdateBreadcrumb();
+        UpdateEmptyWorkspaceVisibility();
         _isLoadingEditor = false;
     }
 
@@ -458,13 +563,18 @@ public sealed partial class WorkspacePage : Page
         if (match.Request == null)
             return;
 
-        _currentCollection = match.Collection;
+        if (match.Collection != null)
+            _currentCollection = match.Collection;
         _currentRequest = match.Request;
         _workspace.ActiveRequestTabId = requestId;
-        RefreshCollectionSelector();
-        RefreshLists();
+        if (match.Collection != null)
+        {
+            RefreshCollectionSelector();
+            RefreshLists();
+        }
         LoadEditor(match.Request);
-        SelectRequestInList(requestId);
+        if (match.Collection != null)
+            SelectRequestInList(requestId);
     }
 
     private void ClearEditor()
@@ -478,7 +588,7 @@ public sealed partial class WorkspacePage : Page
         QueryTable.SetItems(Array.Empty<KeyValuePairItem>());
         FormDataTable.SetItems(Array.Empty<KeyValuePairItem>());
         UrlEncodedTable.SetItems(Array.Empty<KeyValuePairItem>());
-        BodyBox.Text = "";
+        SetBodyText("");
         BinaryFilePathText.Text = "";
         WsUrlBox.Text = "";
         SelectBodyType(ApiBodyType.None);
@@ -487,6 +597,7 @@ public sealed partial class WorkspacePage : Page
         UpdateTypeVisibility(ApiRequestType.Http);
         UpdateBodyVisibility();
         UpdateBreadcrumb();
+        UpdateEmptyWorkspaceVisibility();
         _isLoadingEditor = false;
     }
 
@@ -499,7 +610,7 @@ public sealed partial class WorkspacePage : Page
         _currentRequest.Url = UrlBox.Text.Trim();
         _currentRequest.GrpcMethod = GrpcMethodBox.Text.Trim();
         _currentRequest.GrpcUseTls = GrpcTlsCheckBox.IsChecked == true;
-        _currentRequest.Body = BodyBox.Text;
+        _currentRequest.Body = GetBodyText();
         _currentRequest.BodyType = GetSelectedBodyType();
         _currentRequest.Headers = HeadersTable.GetItems();
         _currentRequest.Query = QueryTable.GetItems();
@@ -528,8 +639,7 @@ public sealed partial class WorkspacePage : Page
         ClearEditor();
         RefreshCollectionSelector();
         RefreshLists();
-        await _storage.SaveAsync(_workspace);
-        ResponseSummaryText.Text = $"已创建集合：{collection.Name}";
+        await PersistWorkspaceAsync();
     }
 
     private async void DeleteCollectionButton_Click(object sender, RoutedEventArgs e)
@@ -537,7 +647,6 @@ public sealed partial class WorkspacePage : Page
         if (_currentCollection == null)
             return;
 
-        string deletedName = _currentCollection.Name;
         var deletedRequestIds = RequestHelpers.GetAllRequestNodes(_currentCollection.Nodes)
             .Where(x => x.Request != null)
             .Select(x => x.Request!.Id)
@@ -555,46 +664,10 @@ public sealed partial class WorkspacePage : Page
         RefreshCollectionSelector();
         RefreshLists();
         RefreshOpenRequestTabs();
-        await _storage.SaveAsync(_workspace);
-        ResponseSummaryText.Text = $"已删除集合：{deletedName}";
+        await PersistWorkspaceAsync();
     }
 
-    private async void AddRequestButton_Click(object sender, RoutedEventArgs e)
-    {
-        _currentCollection ??= _workspace.Collections.FirstOrDefault();
-        if (_currentCollection == null)
-        {
-            _currentCollection = new ApiCollection { Name = "默认集合" };
-            _workspace.Collections.Add(_currentCollection);
-        }
-
-        var request = new ApiRequest
-        {
-            Name = "新建请求",
-            Type = ApiRequestType.Http,
-            Method = "GET",
-            Url = "https://"
-        };
-
-        var requestNode = new CollectionNode
-        {
-            Name = request.Name,
-            IsFolder = false,
-            Request = request
-        };
-
-        // Add to selected folder or root
-        var targetFolder = GetTargetFolder();
-        var targetList = targetFolder != null ? targetFolder.Children : _currentCollection.Nodes;
-        targetList.Add(requestNode);
-
-        _currentRequest = request;
-        await _storage.SaveAsync(_workspace);
-        RefreshCollectionSelector();
-        RefreshLists();
-        SelectRequestInTree(request.Id);
-        OpenRequestTab(request.Id, true);
-    }
+    private void AddRequestButton_Click(object sender, RoutedEventArgs e) => CreateUnsavedRequestTab();
 
     private CollectionNode? GetTargetFolder()
     {
@@ -603,6 +676,44 @@ public sealed partial class WorkspacePage : Page
         if (_selectedNode != null && _selectedNode.IsFolder)
             return _selectedNode;
         return null;
+    }
+
+    private void CreateUnsavedRequestTab()
+    {
+        var request = new ApiRequest
+        {
+            Name = "新建请求",
+            Type = ApiRequestType.Http,
+            Method = "GET",
+            Url = "https://"
+        };
+
+        _unsavedRequests.Add(request);
+        _currentRequest = request;
+        OpenRequestTab(request.Id, true);
+        RefreshLists();
+    }
+
+    private bool IsUnsavedRequest(string requestId)
+    {
+        return _unsavedRequests.Any(x => string.Equals(x.Id, requestId, StringComparison.Ordinal));
+    }
+
+    private ApiRequest? FindUnsavedRequest(string requestId)
+    {
+        return _unsavedRequests.FirstOrDefault(x => string.Equals(x.Id, requestId, StringComparison.Ordinal));
+    }
+
+    private void RemoveUnsavedRequestIfClosed(string requestId)
+    {
+        if (!_workspace.OpenRequestTabIds.Contains(requestId))
+        {
+            _unsavedRequests.RemoveAll(x => string.Equals(x.Id, requestId, StringComparison.Ordinal));
+            // Clean up history tab mapping
+            var staleKey = _historyTabMap.FirstOrDefault(kv => kv.Value == requestId).Key;
+            if (!string.IsNullOrEmpty(staleKey))
+                _historyTabMap.Remove(staleKey);
+        }
     }
 
     private async void AddFolderButton_Click(object sender, RoutedEventArgs e)
@@ -629,9 +740,8 @@ public sealed partial class WorkspacePage : Page
         targetList.Add(folder);
 
         _selectedNode = folder;
-        await _storage.SaveAsync(_workspace);
+        await PersistWorkspaceAsync();
         RefreshLists();
-        ResponseSummaryText.Text = $"已创建文件夹：{folderName}";
     }
 
     private async void DeleteRequestButton_Click(object sender, RoutedEventArgs e)
@@ -639,7 +749,6 @@ public sealed partial class WorkspacePage : Page
         if (_currentCollection == null || _currentRequest == null)
             return;
 
-        string deletedName = _currentRequest.Name;
         string deletedId = _currentRequest.Id;
 
         var parentList = RequestHelpers.FindParentList(_currentCollection.Nodes, deletedId);
@@ -658,14 +767,13 @@ public sealed partial class WorkspacePage : Page
         var allRequests = RequestHelpers.GetAllRequestNodes(_currentCollection.Nodes).ToList();
         _currentRequest = allRequests.Count > 0 ? allRequests[0].Request : null;
 
-        await _storage.SaveAsync(_workspace);
+        await PersistWorkspaceAsync();
         RefreshLists();
         RefreshOpenRequestTabs();
         if (_currentRequest != null)
             SelectRequestInTree(_currentRequest.Id);
         else
             ClearEditor();
-        ResponseSummaryText.Text = $"已删除请求：{deletedName}";
     }
 
     private async void DuplicateRequestButton_Click(object sender, RoutedEventArgs e)
@@ -690,13 +798,12 @@ public sealed partial class WorkspacePage : Page
 
         parentList.Add(clonedNode);
         _currentRequest = clonedNode.Request;
-        await _storage.SaveAsync(_workspace);
+        await PersistWorkspaceAsync();
         RefreshLists();
         if (_currentRequest != null)
             SelectRequestInTree(_currentRequest.Id);
         if (_currentRequest != null)
             OpenRequestTab(_currentRequest.Id, true);
-        ResponseSummaryText.Text = $"已复制请求：{clonedNode.Name}";
     }
 
     private async void ImportSwaggerButton_Click(object sender, RoutedEventArgs e)
@@ -728,33 +835,167 @@ public sealed partial class WorkspacePage : Page
 
             _workspace.Collections.Add(collection);
             _currentCollection = collection;
-            await _storage.SaveAsync(_workspace);
+            await PersistWorkspaceAsync();
             RefreshCollectionSelector();
             RefreshLists();
 
             var firstRequestNode = RequestHelpers.GetAllRequestNodes(collection.Nodes).FirstOrDefault();
             if (firstRequestNode?.Request != null)
                 SelectRequestInTree(firstRequestNode.Request.Id);
-
-            int requestCount = RequestHelpers.GetAllRequestNodes(collection.Nodes).Count();
-            ResponseSummaryText.Text = $"已导入 {collection.Name}，共 {requestCount} 个请求";
         }
         catch (Exception ex)
         {
-            ResponseSummaryText.Text = "导入失败";
             DisplayResponseBody(ex.ToString());
         }
     }
 
     private async void SaveButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_currentRequest == null)
+            return;
+
         ApplyEditor();
         ApplyEnvironmentEditor();
-        await _storage.SaveAsync(_workspace);
-        RefreshCollectionSelector();
-        RefreshLists();
-        RefreshOpenRequestTabs();
-        ResponseSummaryText.Text = "已保存";
+
+        // Check if the request already exists in a collection
+        var match = FindRequest(_currentRequest.Id);
+        bool isInCollection = match.Collection != null && match.Request != null;
+
+        if (isInCollection)
+        {
+            // Already in collection — save directly, update node name
+            if (_currentCollection != null)
+            {
+                var node = RequestHelpers.FindNodeById(_currentCollection.Nodes, _currentRequest.Id);
+                if (node != null)
+                    node.Name = string.IsNullOrWhiteSpace(_currentRequest.Name) ? "Untitled" : _currentRequest.Name;
+            }
+            await PersistWorkspaceAsync();
+            RefreshLists();
+            RefreshOpenRequestTabs();
+            SelectRequestInTree(_currentRequest.Id);
+        }
+        else
+        {
+            // Temporary / unsaved request — show dialog to pick target
+            var target = await ShowSaveTargetDialogAsync();
+            if (target == null)
+                return;
+
+            SaveCurrentRequestToTarget(target);
+            await PersistWorkspaceAsync();
+            RefreshCollectionSelector();
+            RefreshLists();
+            RefreshOpenRequestTabs();
+            SelectRequestInTree(_currentRequest.Id);
+        }
+    }
+
+    private void SaveCurrentRequestToTarget(SaveTarget target)
+    {
+        if (_currentRequest == null)
+            return;
+
+        RemoveRequestFromCollections(_currentRequest.Id);
+
+        var requestNode = new CollectionNode
+        {
+            Name = string.IsNullOrWhiteSpace(_currentRequest.Name) ? "Untitled" : _currentRequest.Name,
+            IsFolder = false,
+            Request = _currentRequest
+        };
+
+        var targetList = target.Folder != null ? target.Folder.Children : target.Collection.Nodes;
+        targetList.Add(requestNode);
+        _unsavedRequests.RemoveAll(x => string.Equals(x.Id, _currentRequest.Id, StringComparison.Ordinal));
+        _currentCollection = target.Collection;
+        _workspace.ActiveRequestTabId = _currentRequest.Id;
+    }
+
+    private void RemoveRequestFromCollections(string requestId)
+    {
+        foreach (var collection in _workspace.Collections)
+        {
+            var parentList = RequestHelpers.FindParentList(collection.Nodes, requestId);
+            var node = parentList?.FirstOrDefault(x => !x.IsFolder && x.Request?.Id == requestId);
+            if (parentList != null && node != null)
+            {
+                parentList.Remove(node);
+                return;
+            }
+        }
+    }
+
+    private async Task<SaveTarget?> ShowSaveTargetDialogAsync()
+    {
+        if (_workspace.Collections.Count == 0)
+            _workspace.Collections.Add(new ApiCollection { Name = "默认集合" });
+
+        var tree = new TreeView
+        {
+            SelectionMode = TreeViewSelectionMode.Single,
+            MinHeight = 260,
+            MaxHeight = 420
+        };
+
+        foreach (var collection in _workspace.Collections)
+        {
+            var root = new TreeViewNode
+            {
+                Content = new SaveTarget(collection, null),
+                IsExpanded = true
+            };
+            AddFolderTargets(root, collection, collection.Nodes);
+            tree.RootNodes.Add(root);
+        }
+
+        if (tree.RootNodes.Count > 0)
+            tree.SelectedNode = tree.RootNodes[0];
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "保存请求到 Collection",
+            Content = tree,
+            PrimaryButtonText = "保存",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary
+        };
+
+        var result = await dialog.ShowAsync();
+        return result == ContentDialogResult.Primary && tree.SelectedNode?.Content is SaveTarget target
+            ? target
+            : null;
+    }
+
+    private static void AddFolderTargets(TreeViewNode parent, ApiCollection collection, IEnumerable<CollectionNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            if (!node.IsFolder)
+                continue;
+
+            var child = new TreeViewNode
+            {
+                Content = new SaveTarget(collection, node),
+                IsExpanded = true
+            };
+            AddFolderTargets(child, collection, node.Children);
+            parent.Children.Add(child);
+        }
+    }
+
+    private sealed class SaveTarget
+    {
+        public SaveTarget(ApiCollection collection, CollectionNode? folder)
+        {
+            Collection = collection;
+            Folder = folder;
+        }
+
+        public ApiCollection Collection { get; }
+        public CollectionNode? Folder { get; }
+        public override string ToString() => Folder?.Name ?? Collection.Name;
     }
 
     private async void SendButton_Click(object sender, RoutedEventArgs e)
@@ -764,7 +1005,7 @@ public sealed partial class WorkspacePage : Page
 
         ApplyEditor();
         ApplyEnvironmentEditor();
-        await _storage.SaveAsync(_workspace);
+        await PersistWorkspaceAsync();
         await SendCurrentAsync();
     }
 
@@ -788,7 +1029,7 @@ public sealed partial class WorkspacePage : Page
 
         try
         {
-            ApiRequest resolvedRequest = EnvironmentVariableResolver.Resolve(_currentRequest, _workspace.EnvironmentVariables);
+            ApiRequest resolvedRequest = EnvironmentVariableResolver.Resolve(_currentRequest, _workspace.GetActiveVariables());
             ApiResponse response = await _executor.ExecuteAsync(resolvedRequest, _sendCancellation.Token);
             if (_sendCancellation.IsCancellationRequested)
             {
@@ -824,7 +1065,7 @@ public sealed partial class WorkspacePage : Page
             if (_workspace.History.Count > 500)
                 _workspace.History = _workspace.History.OrderByDescending(x => x.Timestamp).Take(500).ToList();
 
-            await _storage.SaveAsync(_workspace);
+            await PersistWorkspaceAsync();
             RefreshLists();
             RefreshOpenRequestTabs();
         }
@@ -879,6 +1120,52 @@ public sealed partial class WorkspacePage : Page
         UpdateCurrentTabHeader();
         if (ReferenceEquals(sender, NameBox))
             UpdateBreadcrumb();
+    }
+
+    private void BodyBox_TextChanged(object sender, RoutedEventArgs e)
+    {
+        if (_isApplyingBodyHighlight)
+            return;
+
+        ApplyEditor();
+        ScheduleBodyHighlight();
+    }
+
+    private void ScheduleBodyHighlight()
+    {
+        _highlightDebounceTimer.Stop();
+        _highlightDebounceTimer.Start();
+    }
+
+    private string GetBodyText()
+    {
+        if (BodyBox?.Document == null)
+            return "";
+
+        BodyBox.Document.GetText(TextGetOptions.None, out string text);
+        return NormalizeRichEditText(text);
+    }
+
+    private void SetBodyText(string text)
+    {
+        if (BodyBox?.Document == null)
+            return;
+
+        try
+        {
+            _isApplyingBodyHighlight = true;
+            BodyBox.Document.SetText(TextSetOptions.None, text ?? "");
+        }
+        finally
+        {
+            _isApplyingBodyHighlight = false;
+        }
+        RefreshBodyHighlight();
+    }
+
+    private static string NormalizeRichEditText(string text)
+    {
+        return text.EndsWith('\r') ? text[..^1] : text;
     }
 
     private void UpdateCurrentTabHeader()
@@ -1052,6 +1339,7 @@ public sealed partial class WorkspacePage : Page
 
         int index = _workspace.OpenRequestTabIds.IndexOf(requestId);
         _workspace.OpenRequestTabIds.Remove(requestId);
+        RemoveUnsavedRequestIfClosed(requestId);
         if (_workspace.ActiveRequestTabId == requestId)
         {
             _workspace.ActiveRequestTabId = _workspace.OpenRequestTabIds.Count == 0
@@ -1124,6 +1412,48 @@ public sealed partial class WorkspacePage : Page
 
         SelectOpenTab(_workspace.ActiveRequestTabId);
         _isUpdatingTabs = false;
+        UpdateEmptyWorkspaceVisibility();
+    }
+
+    private void UpdateEmptyWorkspaceVisibility()
+    {
+        if (EmptyWorkspacePanel == null || OpenRequestTabHeaderBar == null)
+            return;
+
+        bool isEmpty = _workspace.OpenRequestTabIds.Count == 0;
+        EmptyWorkspacePanel.Visibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
+        OpenRequestTabHeaderBar.Visibility = isEmpty ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void EmptyCreateNewButton_Click(object sender, RoutedEventArgs e) => CreateUnsavedRequestTab();
+
+    private void EmptyImportButton_Click(object sender, RoutedEventArgs e) => ImportSwaggerButton_Click(sender, e);
+
+    private void EmptyFindButton_Click(object sender, RoutedEventArgs e)
+    {
+        HideInlineSettings();
+        MainNav.SelectedItem = CollectionsNavItem;
+        SelectSidebarSection("collections");
+        RequestSearchBox.Focus(FocusState.Programmatic);
+        RequestSearchBox.SelectAll();
+    }
+
+    private void NewRequestAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        CreateUnsavedRequestTab();
+        args.Handled = true;
+    }
+
+    private void ImportAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        ImportSwaggerButton_Click(sender, new RoutedEventArgs());
+        args.Handled = true;
+    }
+
+    private void FindAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        EmptyFindButton_Click(sender, new RoutedEventArgs());
+        args.Handled = true;
     }
 
     private void SelectOpenTab(string requestId)
@@ -1148,6 +1478,10 @@ public sealed partial class WorkspacePage : Page
         if (string.IsNullOrWhiteSpace(requestId))
             return (null, null);
 
+        var unsavedRequest = FindUnsavedRequest(requestId);
+        if (unsavedRequest != null)
+            return (null, unsavedRequest);
+
         foreach (var collection in _workspace.Collections)
         {
             var node = RequestHelpers.FindNodeById(collection.Nodes, requestId);
@@ -1160,39 +1494,53 @@ public sealed partial class WorkspacePage : Page
 
     private async Task PersistWorkspaceAsync()
     {
-        await _storage.SaveAsync(_workspace);
+        var openTabIds = _workspace.OpenRequestTabIds.ToList();
+        string activeRequestId = _workspace.ActiveRequestTabId;
+        try
+        {
+            _workspace.OpenRequestTabIds = openTabIds
+                .Where(id => !IsUnsavedRequest(id))
+                .ToList();
+            if (IsUnsavedRequest(_workspace.ActiveRequestTabId))
+                _workspace.ActiveRequestTabId = "";
+            await _storage.SaveAsync(_workspace);
+        }
+        finally
+        {
+            _workspace.OpenRequestTabIds = openTabIds;
+            _workspace.ActiveRequestTabId = activeRequestId;
+        }
     }
 
     private void FormatRequestJsonButton_Click(object sender, RoutedEventArgs e)
     {
+        string bodyText = GetBodyText();
         if (IsXmlBodyMode())
         {
             // Format as XML
-            if (XmlFormatService.TryFormat(BodyBox.Text, out string xmlFormatted))
+            if (XmlFormatService.TryFormat(bodyText, out string xmlFormatted))
             {
-                BodyBox.Text = xmlFormatted;
+                SetBodyText(xmlFormatted);
                 ApplyEditor();
                 RefreshBodyHighlight();
-                ResponseSummaryText.Text = "请求 Body XML 已格式化";
             }
             else
             {
-                ResponseSummaryText.Text = "请求 Body 不是有效 XML";
+                // Invalid XML — no changes
             }
             return;
         }
 
         // Format as JSON
-        if (JsonFormatService.TryFormat(BodyBox.Text, out string formatted))
+        if (JsonFormatService.TryFormat(bodyText, out string formatted))
         {
-            BodyBox.Text = formatted;
+            SetBodyText(formatted);
             ApplyEditor();
             RefreshBodyHighlight();
-            ResponseSummaryText.Text = "请求 Body JSON 已格式化";
         }
         else
         {
-            ResponseSummaryText.Text = "请求 Body 不是有效 JSON";
+            // Invalid JSON — no changes
         }
     }
 
@@ -1203,11 +1551,10 @@ public sealed partial class WorkspacePage : Page
         if (JsonFormatService.TryFormat(currentText, out string formatted))
         {
             DisplayResponseBody(formatted);
-            ResponseSummaryText.Text = "响应 Body JSON 已格式化";
         }
         else
         {
-            ResponseSummaryText.Text = "响应 Body 不是有效 JSON";
+            // Invalid JSON — no changes
         }
     }
 
@@ -1247,14 +1594,15 @@ public sealed partial class WorkspacePage : Page
         ApplyEditor();
 
         var bodyType = GetSelectedBodyType();
+        string bodyText = GetBodyText();
         if (bodyType == ApiBodyType.Json)
         {
             // Auto-format and apply JSON highlighting
-            if (JsonFormatService.TryFormat(BodyBox.Text, out string formatted) &&
-                formatted != BodyBox.Text)
+            if (JsonFormatService.TryFormat(bodyText, out string formatted) &&
+                formatted != bodyText)
             {
                 _isLoadingEditor = true;
-                BodyBox.Text = formatted;
+                SetBodyText(formatted);
                 _isLoadingEditor = false;
                 if (_currentRequest != null)
                     _currentRequest.Body = formatted;
@@ -1264,11 +1612,11 @@ public sealed partial class WorkspacePage : Page
         else if (bodyType == ApiBodyType.Xml)
         {
             // Auto-format and apply XML highlighting
-            if (XmlFormatService.TryFormat(BodyBox.Text, out string xmlFormatted) &&
-                xmlFormatted != BodyBox.Text)
+            if (XmlFormatService.TryFormat(bodyText, out string xmlFormatted) &&
+                xmlFormatted != bodyText)
             {
                 _isLoadingEditor = true;
-                BodyBox.Text = xmlFormatted;
+                SetBodyText(xmlFormatted);
                 _isLoadingEditor = false;
                 if (_currentRequest != null)
                     _currentRequest.Body = xmlFormatted;
@@ -1277,7 +1625,7 @@ public sealed partial class WorkspacePage : Page
         }
         else
         {
-            HideBodyHighlight();
+            ApplyPlainBodyTextColor();
         }
     }
 
@@ -1297,46 +1645,84 @@ public sealed partial class WorkspacePage : Page
 
     private void RefreshBodyHighlight()
     {
-        if (BodyHighlightBlock == null || BodyHighlightScrollViewer == null)
+        if (BodyBox?.Document == null)
             return;
+
         bool isJson = IsJsonBodyMode();
         bool isXml = IsXmlBodyMode();
-        if ((!isJson && !isXml) || string.IsNullOrWhiteSpace(BodyBox.Text))
+        string bodyText = GetBodyText();
+        if ((!isJson && !isXml) || string.IsNullOrWhiteSpace(bodyText))
         {
-            HideBodyHighlight();
+            ApplyPlainBodyTextColor();
             return;
         }
-        if (isJson)
-            RichTextHelper.ApplyJsonHighlighting(BodyHighlightBlock, BodyBox.Text);
-        else if (isXml)
-            RichTextHelper.ApplyXmlHighlighting(BodyHighlightBlock, BodyBox.Text);
-        BodyHighlightScrollViewer.Visibility = Visibility.Visible;
-        BodyBox.Visibility = Visibility.Collapsed;
+
+        _isApplyingBodyHighlight = true;
+        try
+        {
+            int selectionStart = BodyBox.Document.Selection.StartPosition;
+            int selectionEnd = BodyBox.Document.Selection.EndPosition;
+            Color defaultColor = GetDefaultBodyTextColor();
+
+            BodyBox.Document.GetRange(0, bodyText.Length).CharacterFormat.ForegroundColor = defaultColor;
+
+            int position = 0;
+            if (isJson)
+            {
+                foreach (var token in JsonHighlightService.Tokenize(bodyText))
+                {
+                    ApplyBodyTokenColor(position, token.Text.Length, token.Kind == JsonTokenKind.Whitespace
+                        ? defaultColor
+                        : JsonHighlightService.GetColor(token.Kind, IsDarkTheme()));
+                    position += token.Text.Length;
+                }
+            }
+            else if (isXml)
+            {
+                foreach (var token in XmlHighlightService.TokenizeDetailed(bodyText))
+                {
+                    ApplyBodyTokenColor(position, token.Text.Length, token.Kind == XmlTokenKind.Whitespace
+                        ? defaultColor
+                        : XmlHighlightService.GetColor(token.Kind, IsDarkTheme()));
+                    position += token.Text.Length;
+                }
+            }
+
+            BodyBox.Document.Selection.SetRange(selectionStart, selectionEnd);
+        }
+        finally
+        {
+            _isApplyingBodyHighlight = false;
+        }
     }
 
-    private void HideBodyHighlight()
+    private void ApplyBodyTokenColor(int start, int length, Color color)
     {
-        if (BodyHighlightScrollViewer == null || BodyBox == null)
+        if (length <= 0)
             return;
-        BodyHighlightScrollViewer.Visibility = Visibility.Collapsed;
-        BodyBox.Visibility = Visibility.Visible;
+        BodyBox.Document.GetRange(start, start + length).CharacterFormat.ForegroundColor = color;
     }
 
-    private void BodyBox_GotFocus(object sender, RoutedEventArgs e)
+    private void ApplyPlainBodyTextColor()
     {
-        HideBodyHighlight();
+        string bodyText = GetBodyText();
+        if (string.IsNullOrEmpty(bodyText))
+            return;
+        BodyBox.Document.GetRange(0, bodyText.Length).CharacterFormat.ForegroundColor = GetDefaultBodyTextColor();
     }
 
-    private void BodyBox_LostFocus(object sender, RoutedEventArgs e)
+    private Color GetDefaultBodyTextColor()
     {
-        if (IsJsonBodyMode() || IsXmlBodyMode())
-            RefreshBodyHighlight();
+        return BodyBox.Foreground is SolidColorBrush brush
+            ? brush.Color
+            : (IsDarkTheme() ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black);
     }
 
-    private void BodyHighlight_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    private bool IsDarkTheme()
     {
-        HideBodyHighlight();
-        BodyBox.Focus(FocusState.Pointer);
+        return BodyBox.ActualTheme == ElementTheme.Dark ||
+               (BodyBox.ActualTheme == ElementTheme.Default &&
+                Application.Current.RequestedTheme == ApplicationTheme.Dark);
     }
 
     private async void SelectBinaryFile_Click(object sender, RoutedEventArgs e)
@@ -1367,7 +1753,7 @@ public sealed partial class WorkspacePage : Page
         bool isXml = bodyType == ApiBodyType.Xml;
         bool isHighlighted = isJson || isXml;
 
-        BodyBox.Visibility = (isRaw && !isHighlighted) ? Visibility.Visible : Visibility.Collapsed;
+        BodyBox.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
         FormDataTable.Visibility = isFormData ? Visibility.Visible : Visibility.Collapsed;
         UrlEncodedTable.Visibility = isUrlEncoded ? Visibility.Visible : Visibility.Collapsed;
         BinaryInfoPanel.Visibility = isBinary ? Visibility.Visible : Visibility.Collapsed;
@@ -1377,12 +1763,11 @@ public sealed partial class WorkspacePage : Page
 
         if (isHighlighted)
         {
-            BodyBox.Visibility = Visibility.Collapsed;
             RefreshBodyHighlight();
         }
         else
         {
-            HideBodyHighlight();
+            ApplyPlainBodyTextColor();
         }
     }
 
@@ -1491,26 +1876,168 @@ public sealed partial class WorkspacePage : Page
 
     private void ApplyEnvironmentEditor()
     {
-        if (_isLoadingEditor)
+        if (_isLoadingEditor || _editingEnvironment == null)
             return;
 
-        _workspace.EnvironmentVariables = EnvironmentTable.GetItems();
+        _editingEnvironment.Variables = EnvironmentTable.GetItems();
     }
 
     private void EnvironmentTable_ItemsChanged(object? sender, EventArgs e)
     {
-        if (!_isLoadingEditor)
-            _workspace.EnvironmentVariables = EnvironmentTable.GetItems();
+        if (!_isLoadingEditor && _editingEnvironment != null)
+            _editingEnvironment.Variables = EnvironmentTable.GetItems();
     }
 
     /// <summary>Returns current environment variable names for autocomplete.</summary>
     private List<string> GetEnvironmentVariableNames()
     {
-        return _workspace.EnvironmentVariables
+        var activeEnv = _workspace.GetActiveEnvironment();
+        if (activeEnv == null)
+            return new List<string>();
+        return activeEnv.Variables
             .Where(x => !string.IsNullOrWhiteSpace(x.Key))
             .Select(x => x.Key.Trim())
             .Distinct()
             .ToList();
+    }
+
+    private void RefreshEnvironmentList()
+    {
+        EnvironmentListView.ItemsSource = null;
+        EnvironmentListView.ItemsSource = _workspace.Environments;
+    }
+
+    private void AddEnvironmentButton_Click(object sender, RoutedEventArgs e)
+    {
+        var env = new EnvironmentProfile { Name = "New Environment" };
+        _workspace.Environments.Add(env);
+        RefreshEnvironmentList();
+        EnvironmentListView.SelectedItem = env;
+    }
+
+    private void EnvironmentMenuRename_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem item && item.Tag is EnvironmentProfile env)
+        {
+            _ = RenameEnvironmentAsync(env);
+        }
+    }
+
+    private void EnvironmentMenuDuplicate_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem item && item.Tag is EnvironmentProfile env)
+        {
+            var copy = new EnvironmentProfile
+            {
+                Name = $"{env.Name} (Copy)",
+                Variables = env.Variables.Select(v => new KeyValuePairItem
+                {
+                    Key = v.Key,
+                    Value = v.Value,
+                    Description = v.Description,
+                    Enabled = v.Enabled
+                }).ToList()
+            };
+            _workspace.Environments.Add(copy);
+            RefreshEnvironmentList();
+            EnvironmentListView.SelectedItem = copy;
+        }
+    }
+
+    private async Task RenameEnvironmentAsync(EnvironmentProfile env)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Rename Environment",
+            PrimaryButtonText = "OK",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = this.XamlRoot
+        };
+        var textBox = new TextBox { Text = env.Name, PlaceholderText = "Environment name" };
+        dialog.Content = textBox;
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(textBox.Text))
+        {
+            env.Name = textBox.Text.Trim();
+            if (_editingEnvironment == env)
+                EnvTitleText.Text = env.Name;
+            RefreshEnvironmentList();
+        }
+    }
+
+    private void EnvironmentMenuDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem item || item.Tag is not EnvironmentProfile env)
+            return;
+
+        if (_workspace.Environments.Count <= 1)
+            return;
+
+        _workspace.Environments.Remove(env);
+
+        if (_editingEnvironment == env)
+        {
+            _editingEnvironment = null;
+            EnvironmentOverlayPanel.Visibility = Visibility.Collapsed;
+            RequestEditorArea.Visibility = Visibility.Visible;
+        }
+
+        RefreshEnvironmentList();
+    }
+
+    private void EnvironmentListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (EnvironmentListView.SelectedItem is not EnvironmentProfile env)
+            return;
+
+        _editingEnvironment = env;
+        _workspace.ActiveEnvironmentId = env.Id;
+
+        _isLoadingEditor = true;
+        EnvironmentTable.SetItems(env.Variables);
+        _isLoadingEditor = false;
+
+        EnvTitleText.Text = env.Name;
+        RequestEditorArea.Visibility = Visibility.Collapsed;
+        EnvironmentOverlayPanel.Visibility = Visibility.Visible;
+        SettingsOverlayPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void EnvBackButton_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyEnvironmentEditor();
+        _editingEnvironment = null;
+        EnvironmentOverlayPanel.Visibility = Visibility.Collapsed;
+        RequestEditorArea.Visibility = Visibility.Visible;
+        EnvironmentListView.SelectedItem = null;
+    }
+
+    private async void RenameEnvironmentButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_editingEnvironment == null)
+            return;
+
+        var dialog = new ContentDialog
+        {
+            Title = "Rename Environment",
+            PrimaryButtonText = "OK",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = this.XamlRoot
+        };
+
+        var textBox = new TextBox { Text = _editingEnvironment.Name, PlaceholderText = "Environment name" };
+        dialog.Content = textBox;
+
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(textBox.Text))
+        {
+            _editingEnvironment.Name = textBox.Text.Trim();
+            EnvTitleText.Text = _editingEnvironment.Name;
+            RefreshEnvironmentList();
+            EnvironmentListView.SelectedItem = _editingEnvironment;
+        }
     }
 
     private void UpdateTypeVisibility(ApiRequestType type)
@@ -1596,8 +2123,10 @@ public sealed partial class WorkspacePage : Page
         };
 
         // Build full path: CollectionName / Folder1 / Folder2 / ... / RequestName
-        string collectionName = _currentCollection?.Name ?? "";
-        List<string>? nodePath = _currentCollection != null
+        var requestMatch = FindRequest(_currentRequest.Id);
+        bool isUnsavedRequest = requestMatch.Request != null && requestMatch.Collection == null;
+        string collectionName = isUnsavedRequest ? "" : _currentCollection?.Name ?? "";
+        List<string>? nodePath = !isUnsavedRequest && _currentCollection != null
             ? RequestHelpers.GetNodePath(_currentCollection.Nodes, _currentRequest.Id)
             : null;
 
@@ -1619,7 +2148,7 @@ public sealed partial class WorkspacePage : Page
         else
         {
             // Temporary request — no collection context
-            pathText = "";
+            pathText = isUnsavedRequest ? "Unsaved" : "";
         }
         BreadcrumbCollectionText.Text = pathText;
         BreadcrumbSeparator.Visibility = string.IsNullOrEmpty(pathText) ? Visibility.Collapsed : Visibility.Visible;
@@ -1743,7 +2272,7 @@ public sealed partial class WorkspacePage : Page
         _sendCancellation = new CancellationTokenSource();
         try
         {
-            ApiRequest resolved = EnvironmentVariableResolver.Resolve(_currentRequest, _workspace.EnvironmentVariables);
+            ApiRequest resolved = EnvironmentVariableResolver.Resolve(_currentRequest, _workspace.GetActiveVariables());
             var response = await _executor.ExecuteAsync(resolved, _sendCancellation.Token);
             WsStatusDot.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 34, 197, 94));
             WsStatusText.Text = "Connected";
@@ -1867,35 +2396,10 @@ public sealed partial class WorkspacePage : Page
         flyout.ShowAt(btn);
     }
 
-    private async Task AddRequestToNode(CollectionNode node)
+    private Task AddRequestToNode(CollectionNode node)
     {
-        if (_currentCollection == null)
-            return;
-
-        var request = new ApiRequest
-        {
-            Name = "新建请求",
-            Type = ApiRequestType.Http,
-            Method = "GET",
-            Url = "https://"
-        };
-
-        var requestNode = new CollectionNode
-        {
-            Name = request.Name,
-            IsFolder = false,
-            Request = request
-        };
-
-        var targetList = node.IsFolder ? node.Children : _currentCollection.Nodes;
-        targetList.Add(requestNode);
-
-        _currentRequest = request;
-        await _storage.SaveAsync(_workspace);
-        RefreshLists();
-        SelectRequestInTree(request.Id);
-        OpenRequestTab(request.Id, true);
-        ResponseSummaryText.Text = $"已创建请求：{request.Name}";
+        CreateUnsavedRequestTab();
+        return Task.CompletedTask;
     }
 
     private void RequestTreeView_RightTapped(object sender, RightTappedRoutedEventArgs e)
@@ -1927,36 +2431,7 @@ public sealed partial class WorkspacePage : Page
         return null;
     }
 
-    private async void ContextAddRequest_Click(object sender, RoutedEventArgs e)
-    {
-        if (_currentCollection == null || _contextMenuNode == null)
-            return;
-
-        var request = new ApiRequest
-        {
-            Name = "新建请求",
-            Type = ApiRequestType.Http,
-            Method = "GET",
-            Url = "https://"
-        };
-
-        var requestNode = new CollectionNode
-        {
-            Name = request.Name,
-            IsFolder = false,
-            Request = request
-        };
-
-        var targetList = _contextMenuNode.IsFolder ? _contextMenuNode.Children : _currentCollection.Nodes;
-        targetList.Add(requestNode);
-
-        _currentRequest = request;
-        await _storage.SaveAsync(_workspace);
-        RefreshLists();
-        SelectRequestInTree(request.Id);
-        OpenRequestTab(request.Id, true);
-        ResponseSummaryText.Text = $"已创建请求：{request.Name}";
-    }
+    private void ContextAddRequest_Click(object sender, RoutedEventArgs e) => CreateUnsavedRequestTab();
 
     private async void ContextAddSubFolder_Click(object sender, RoutedEventArgs e)
     {
@@ -1976,9 +2451,8 @@ public sealed partial class WorkspacePage : Page
         var targetList = _contextMenuNode.IsFolder ? _contextMenuNode.Children : _currentCollection.Nodes;
         targetList.Add(folder);
 
-        await _storage.SaveAsync(_workspace);
+        await PersistWorkspaceAsync();
         RefreshLists();
-        ResponseSummaryText.Text = $"已创建文件夹：{folderName}";
     }
 
     private async void ContextRename_Click(object sender, RoutedEventArgs e)
@@ -1995,10 +2469,9 @@ public sealed partial class WorkspacePage : Page
         if (_contextMenuNode.Request != null)
             _contextMenuNode.Request.Name = newName;
 
-        await _storage.SaveAsync(_workspace);
+        await PersistWorkspaceAsync();
         RefreshLists();
         RefreshOpenRequestTabs();
-        ResponseSummaryText.Text = $"已重命名为：{newName}";
     }
 
     private async void ContextDuplicate_Click(object sender, RoutedEventArgs e)
@@ -2019,13 +2492,12 @@ public sealed partial class WorkspacePage : Page
             _currentCollection.Nodes.Add(clonedNode);
 
         _currentRequest = clonedNode.Request;
-        await _storage.SaveAsync(_workspace);
+        await PersistWorkspaceAsync();
         RefreshLists();
         if (_currentRequest != null)
             SelectRequestInTree(_currentRequest.Id);
         if (_currentRequest != null)
             OpenRequestTab(_currentRequest.Id, true);
-        ResponseSummaryText.Text = $"已复制请求：{clonedNode.Name}";
     }
 
     private async void ContextDelete_Click(object sender, RoutedEventArgs e)
@@ -2055,10 +2527,9 @@ public sealed partial class WorkspacePage : Page
                 ClearEditor();
             }
 
-            await _storage.SaveAsync(_workspace);
+            await PersistWorkspaceAsync();
             RefreshLists();
             RefreshOpenRequestTabs();
-            ResponseSummaryText.Text = $"已删除文件夹：{_contextMenuNode.Name}";
         }
         else if (_contextMenuNode.Request != null)
         {
@@ -2079,10 +2550,9 @@ public sealed partial class WorkspacePage : Page
                 ClearEditor();
             }
 
-            await _storage.SaveAsync(_workspace);
+            await PersistWorkspaceAsync();
             RefreshLists();
             RefreshOpenRequestTabs();
-            ResponseSummaryText.Text = $"已删除请求：{_contextMenuNode.Name}";
         }
     }
 
@@ -2135,7 +2605,10 @@ public sealed partial class WorkspacePage : Page
 
         var toRemove = _workspace.OpenRequestTabIds.Where(id => id != _rightClickTabId).ToList();
         foreach (var id in toRemove)
+        {
             _workspace.OpenRequestTabIds.Remove(id);
+            RemoveUnsavedRequestIfClosed(id);
+        }
 
         _workspace.ActiveRequestTabId = _rightClickTabId;
         RefreshOpenRequestTabs();
@@ -2154,7 +2627,10 @@ public sealed partial class WorkspacePage : Page
 
         var toRemove = _workspace.OpenRequestTabIds.Take(index).ToList();
         foreach (var id in toRemove)
+        {
             _workspace.OpenRequestTabIds.Remove(id);
+            RemoveUnsavedRequestIfClosed(id);
+        }
 
         if (toRemove.Contains(_workspace.ActiveRequestTabId))
             _workspace.ActiveRequestTabId = _rightClickTabId;
@@ -2178,7 +2654,10 @@ public sealed partial class WorkspacePage : Page
 
         var toRemove = _workspace.OpenRequestTabIds.Skip(index + 1).ToList();
         foreach (var id in toRemove)
+        {
             _workspace.OpenRequestTabIds.Remove(id);
+            RemoveUnsavedRequestIfClosed(id);
+        }
 
         if (toRemove.Contains(_workspace.ActiveRequestTabId))
             _workspace.ActiveRequestTabId = _rightClickTabId;
@@ -2195,6 +2674,7 @@ public sealed partial class WorkspacePage : Page
     {
         int index = _workspace.OpenRequestTabIds.IndexOf(requestId);
         _workspace.OpenRequestTabIds.Remove(requestId);
+        RemoveUnsavedRequestIfClosed(requestId);
 
         if (_workspace.ActiveRequestTabId == requestId)
         {
@@ -2211,41 +2691,7 @@ public sealed partial class WorkspacePage : Page
         _ = PersistWorkspaceAsync();
     }
 
-    private async void NewTabButton_Click(object sender, RoutedEventArgs e)
-    {
-        _currentCollection ??= _workspace.Collections.FirstOrDefault();
-        if (_currentCollection == null)
-        {
-            _currentCollection = new ApiCollection { Name = "默认集合" };
-            _workspace.Collections.Add(_currentCollection);
-        }
-
-        var request = new ApiRequest
-        {
-            Name = "新建请求",
-            Type = ApiRequestType.Http,
-            Method = "GET",
-            Url = "https://"
-        };
-
-        var requestNode = new CollectionNode
-        {
-            Name = request.Name,
-            IsFolder = false,
-            Request = request
-        };
-
-        var targetFolder = GetTargetFolder();
-        var targetList = targetFolder != null ? targetFolder.Children : _currentCollection.Nodes;
-        targetList.Add(requestNode);
-
-        _currentRequest = request;
-        await _storage.SaveAsync(_workspace);
-        RefreshCollectionSelector();
-        RefreshLists();
-        SelectRequestInTree(request.Id);
-        OpenRequestTab(request.Id, true);
-    }
+    private void NewTabButton_Click(object sender, RoutedEventArgs e) => CreateUnsavedRequestTab();
 
     /// <summary>
     /// Show a simple input dialog to get user text input.

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Serialization;
 
 namespace WinRequest.Models;
 
@@ -22,14 +23,63 @@ public enum ApiBodyType
     Binary
 }
 
+public enum KeyValueValueKind
+{
+    Text,
+    File
+}
+
 public sealed class ApiWorkspace
 {
     public List<ApiCollection> Collections { get; set; } = new();
     public List<RequestHistoryEntry> History { get; set; } = new();
-    public List<KeyValuePairItem> EnvironmentVariables { get; set; } = new();
+    public List<EnvironmentProfile> Environments { get; set; } = new();
+    public string ActiveEnvironmentId { get; set; } = "";
+
+    /// <summary>Legacy flat environment variables — migrated into Environments on load.</summary>
+    [JsonPropertyName("EnvironmentVariables")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public List<KeyValuePairItem> LegacyEnvironmentVariables { get; set; } = new();
+
     public AppSettings Settings { get; set; } = new();
     public List<string> OpenRequestTabIds { get; set; } = new();
     public string ActiveRequestTabId { get; set; } = "";
+
+    /// <summary>
+    /// Migrates legacy flat EnvironmentVariables into the Environments list.
+    /// </summary>
+    public void EnsureEnvironments()
+    {
+        if (Environments.Count == 0)
+        {
+            var profile = new EnvironmentProfile { Name = "Default" };
+            if (LegacyEnvironmentVariables.Count > 0)
+            {
+                profile.Variables = LegacyEnvironmentVariables;
+                LegacyEnvironmentVariables.Clear();
+            }
+            Environments.Add(profile);
+        }
+    }
+
+    public EnvironmentProfile? GetActiveEnvironment()
+    {
+        if (string.IsNullOrEmpty(ActiveEnvironmentId))
+            return Environments.FirstOrDefault();
+        return Environments.FirstOrDefault(e => e.Id == ActiveEnvironmentId) ?? Environments.FirstOrDefault();
+    }
+
+    public List<KeyValuePairItem> GetActiveVariables()
+    {
+        return GetActiveEnvironment()?.Variables ?? new List<KeyValuePairItem>();
+    }
+}
+
+public sealed class EnvironmentProfile
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = "New Environment";
+    public List<KeyValuePairItem> Variables { get; set; } = new();
 }
 
 public sealed class AppSettings
@@ -104,6 +154,8 @@ public sealed class KeyValuePairItem
 {
     public string Key { get; set; } = "";
     public string Value { get; set; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public KeyValueValueKind ValueKind { get; set; } = KeyValueValueKind.Text;
     public string Description { get; set; } = "";
     public bool Enabled { get; set; } = true;
 }
@@ -131,6 +183,37 @@ public sealed class RequestHistoryEntry
             return $"{Timestamp:HH:mm:ss}  {Type}  {Method}  {status}  {Url}";
         }
     }
+
+    /// <summary>Returns a hex color string for the HTTP method badge.</summary>
+    public string MethodColor => Method?.ToUpperInvariant() switch
+    {
+        "GET" => "#107C10",
+        "POST" => "#0078D4",
+        "PUT" => "#CA5010",
+        "PATCH" => "#8764B8",
+        "DELETE" => "#D13438",
+        "HEAD" => "#69797E",
+        "OPTIONS" => "#69797E",
+        _ => "#69797E"
+    };
+
+    /// <summary>Short display: method + URL only.</summary>
+    public string ShortDisplay => $"{Method}  {Url}";
+
+    /// <summary>Used by TreeView DataTemplate to hide/show folder vs leaf content.</summary>
+    public bool IsFolder => false;
+}
+
+/// <summary>Groups history entries by date for the grouped history view.</summary>
+public sealed class HistoryDateGroup
+{
+    public string DateLabel { get; set; } = "";
+    public int Count { get; set; }
+    public List<RequestHistoryEntry> Entries { get; set; } = new();
+    public string CountDisplay => $"({Count})";
+
+    /// <summary>Used by TreeView DataTemplate to hide/show folder vs leaf content.</summary>
+    public bool IsFolder => true;
 }
 
 public sealed class ApiResponse
@@ -215,6 +298,7 @@ public static class RequestHelpers
         {
             Key = source.Key,
             Value = source.Value,
+            ValueKind = source.ValueKind,
             Description = source.Description,
             Enabled = source.Enabled
         };

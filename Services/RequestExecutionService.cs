@@ -42,7 +42,22 @@ public sealed class RequestExecutionService
             {
                 var formContent = new MultipartFormDataContent();
                 foreach (var field in request.FormData.Where(x => x.Enabled && !string.IsNullOrWhiteSpace(x.Key)))
-                    formContent.Add(new StringContent(field.Value ?? ""), field.Key);
+                {
+                    if (field.ValueKind == KeyValueValueKind.File)
+                    {
+                        string filePath = field.Value ?? "";
+                        if (string.IsNullOrWhiteSpace(filePath) || !System.IO.File.Exists(filePath))
+                            continue;
+
+                        byte[] fileBytes = await System.IO.File.ReadAllBytesAsync(filePath, cancellationToken);
+                        string fileName = System.IO.Path.GetFileName(filePath);
+                        formContent.Add(new ByteArrayContent(fileBytes), field.Key, fileName);
+                    }
+                    else
+                    {
+                        formContent.Add(new StringContent(field.Value ?? ""), field.Key);
+                    }
+                }
                 message.Content = formContent;
             }
 

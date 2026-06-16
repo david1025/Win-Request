@@ -38,6 +38,23 @@
             <Setter Property="MinHeight" Value="28" />
         </Style>
 
+        <Style x:Key="EmptyCommandButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+
+        <Style x:Key="ShortcutKeyStyle" TargetType="Border">
+            <Setter Property="Background" Value="#0F000000" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="Margin" Value="3,0,0,0" />
+        </Style>
+
         <Style x:Key="RailButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
             <Setter Property="Width" Value="38" />
             <Setter Property="Height" Value="38" />
@@ -180,9 +197,9 @@
         </MenuFlyout>
     </Page.Resources>
 
-    <Grid Background="Transparent">
+    <Grid x:Name="RootGrid" Background="Transparent">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="260" />
+            <ColumnDefinition Width="300" MinWidth="260" />
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
@@ -201,6 +218,10 @@
             <NavigationView.Resources>
                 <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
                 <SolidColorBrush x:Key="NavigationViewContentGridBackground" Color="Transparent" />
+                <SolidColorBrush x:Key="NavigationViewPaneBorderBrush" Color="Transparent" />
+                <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="Transparent" />
+                <Thickness x:Key="NavigationViewPaneBorderThickness">0</Thickness>
+                <Thickness x:Key="NavigationViewContentGridBorderThickness">0</Thickness>
             </NavigationView.Resources>
             <NavigationView.MenuItems>
                 <NavigationViewItem x:Name="CollectionsNavItem"
@@ -227,17 +248,14 @@
                         <FontIcon Glyph="&#xE81C;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem x:Name="ProfileNavItem"
-                                    Content="Profile"
-                                    Tag="profile"
-                                    ToolTipService.ToolTip="Profile">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE77B;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
             </NavigationView.MenuItems>
 
-            <Grid Background="{StaticResource WorkbenchSidebarBrush}">
+            <Border Background="{StaticResource WorkbenchSidebarBrush}"
+                    BorderBrush="{StaticResource WorkbenchStrokeBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Margin="0,0,4,4">
+            <Grid>
                 <Grid x:Name="CollectionsSidebarPanel" Padding="4,8,8,10" RowSpacing="0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -302,22 +320,77 @@
 
                 <Grid x:Name="EnvironmentsSidebarPanel"
                       Visibility="Collapsed"
-                      Padding="10,8,8,10"
-                      RowSpacing="8">
+                      Padding="4,8,8,10"
+                      RowSpacing="0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <NavigationViewItem Content="Environments"
-                                        Icon="MapPin"
-                                        IsSelected="True"
-                                        Height="32"
-                                        Padding="8,0" />
-                    <Border Grid.Row="1"
-                            Style="{StaticResource PanelBorderStyle}"
-                            Padding="0">
-                        <controls:KeyValueTable x:Name="EnvironmentTable" />
-                    </Border>
+
+                    <Grid ColumnSpacing="6" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Environments"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"
+                                   Padding="4,0" />
+                        <Button Grid.Column="1"
+                                Click="AddEnvironmentButton_Click"
+                                ToolTipService.ToolTip="New environment"
+                                Style="{ThemeResource AccentButtonStyle}"
+                                MinWidth="32"
+                                Height="32"
+                                Padding="8,4">
+                            <FontIcon Glyph="&#xE710;" FontSize="13" />
+                        </Button>
+                    </Grid>
+
+                    <ListView x:Name="EnvironmentListView"
+                              Grid.Row="1"
+                              SelectionChanged="EnvironmentListView_SelectionChanged"
+                              Padding="0,2,0,0">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="8,6" ColumnSpacing="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Name}"
+                                               FontSize="13"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <Button Grid.Column="1"
+                                            Tag="{Binding}"
+                                            ToolTipService.ToolTip="More"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Padding="4,2"
+                                            MinWidth="24"
+                                            MinHeight="24">
+                                        <FontIcon Glyph="&#xE712;" FontSize="10" />
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Rename" Tag="{Binding}" Click="EnvironmentMenuRename_Click">
+                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE70F;" /></MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem Text="Duplicate" Tag="{Binding}" Click="EnvironmentMenuDuplicate_Click">
+                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;" /></MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutSeparator />
+                                                <MenuFlyoutItem Text="Delete" Tag="{Binding}" Click="EnvironmentMenuDelete_Click">
+                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;" /></MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
                 </Grid>
 
                 <Grid x:Name="HistorySidebarPanel"
@@ -333,33 +406,33 @@
                                         IsSelected="True"
                                         Height="32"
                                         Padding="8,0" />
-                    <ListView x:Name="HistoryListView"
+                    <TreeView x:Name="HistoryTreeView"
                               Grid.Row="1"
-                              SelectionChanged="HistoryListView_SelectionChanged"
-                              DisplayMemberPath="DisplayText" />
-                </Grid>
-
-                <Grid x:Name="ProfileSidebarPanel"
-                      Visibility="Collapsed"
-                      Padding="10,8,8,10"
-                      RowSpacing="10">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <NavigationViewItem Content="Profile"
-                                        Icon="Contact"
-                                        IsSelected="True"
-                                        Height="32"
-                                        Padding="8,0" />
-                    <StackPanel Grid.Row="1" Padding="8,6" Spacing="6">
-                        <FontIcon Glyph="&#xE77B;" FontSize="28" HorizontalAlignment="Left" />
-                        <TextBlock Text="Local workspace"
-                                   FontWeight="SemiBold" />
-                        <TextBlock Text="Profile options can be added here."
-                                   TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    </StackPanel>
+                              ItemInvoked="HistoryTreeView_ItemInvoked"
+                              CanDragItems="False"
+                              CanReorderItems="False"
+                              Padding="0,4,0,0">
+                        <TreeView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid MinHeight="26">
+                                    <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center"
+                                                Visibility="{Binding Content.IsFolder, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <FontIcon Glyph="&#xE8B7;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="{Binding Content.DateLabel}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding Content.CountDisplay}" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
+                                                Visibility="{Binding Content.IsFolder, Converter={StaticResource InverseBoolToVisibilityConverter}}">
+                                        <Border CornerRadius="3" Padding="4,1" MinWidth="36"
+                                                Background="{Binding Content.Method, Converter={StaticResource MethodToBrushConverter}}">
+                                            <TextBlock Text="{Binding Content.Method}" FontSize="10" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center" />
+                                        </Border>
+                                        <TextBlock Text="{Binding Content.Url}" FontSize="12" TextTrimming="CharacterEllipsis" MaxWidth="180" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
                 </Grid>
 
                 <Grid x:Name="SettingsSidebarPanel"
@@ -385,11 +458,17 @@
                     </StackPanel>
                 </Grid>
             </Grid>
+            </Border>
         </NavigationView>
 
         <ui:GridSplitter Grid.Column="1" Width="8" Background="Transparent" />
 
         <Grid x:Name="RequestEditorArea" Grid.Column="2" Padding="10,0,10,10" RowSpacing="7">
+            <Grid.KeyboardAccelerators>
+                <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="NewRequestAccelerator_Invoked" />
+                <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="ImportAccelerator_Invoked" />
+                <KeyboardAccelerator Key="K" Modifiers="Control" Invoked="FindAccelerator_Invoked" />
+            </Grid.KeyboardAccelerators>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -399,7 +478,7 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Grid Grid.Row="0">
+            <Grid x:Name="OpenRequestTabHeaderBar" Grid.Row="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -414,7 +493,10 @@
                         Click="NewTabButton_Click"
                         ToolTipService.ToolTip="New request"
                         Style="{StaticResource GhostButtonStyle}"
-                        Margin="4,0,0,0"
+                        Width="36"
+                        Height="36"
+                        Padding="0"
+                        Margin="4,6,0,0"
                         VerticalAlignment="Center">
                     <FontIcon Glyph="&#xE710;" FontSize="13" />
                 </Button>
@@ -479,6 +561,86 @@
 
                 <!-- Request name: TextBlock (click to edit) + hidden TextBox -->
                 <Grid Grid.Column="3">
+                    <Grid.Resources>
+                        <!-- Compact inline-edit style: mirrors CellTextBox vertical-centering technique -->
+                        <Style x:Key="NameBoxStyle" TargetType="TextBox">
+                            <Setter Property="Foreground" Value="{ThemeResource TextControlForeground}" />
+                            <Setter Property="Background" Value="{StaticResource WorkbenchControlBrush}" />
+                            <Setter Property="BorderBrush" Value="{StaticResource WorkbenchStrokeBrush}" />
+                            <Setter Property="BorderThickness" Value="1" />
+                            <Setter Property="CornerRadius" Value="4" />
+                            <Setter Property="Padding" Value="6,4,6,5" />
+                            <Setter Property="FontSize" Value="12" />
+                            <Setter Property="MinHeight" Value="26" />
+                            <Setter Property="VerticalAlignment" Value="Center" />
+                            <Setter Property="HorizontalAlignment" Value="Left" />
+                            <Setter Property="VerticalContentAlignment" Value="Center" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="TextBox">
+                                        <Grid>
+                                            <Border x:Name="BorderElement"
+                                                    Background="{TemplateBinding Background}"
+                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                    CornerRadius="{TemplateBinding CornerRadius}"
+                                                    MinHeight="{TemplateBinding MinHeight}">
+                                                <ScrollViewer x:Name="ContentElement"
+                                                              Margin="{TemplateBinding BorderThickness}"
+                                                              Padding="{TemplateBinding Padding}"
+                                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                              IsTabStop="False"
+                                                              AutomationProperties.AccessibilityView="Raw" />
+                                            </Border>
+                                            <TextBlock x:Name="PlaceholderTextContentPresenter"
+                                                       Text="{TemplateBinding PlaceholderText}"
+                                                       Foreground="{ThemeResource TextControlPlaceholderForeground}"
+                                                       Padding="{TemplateBinding Padding}"
+                                                       FontFamily="{TemplateBinding FontFamily}"
+                                                       FontSize="{TemplateBinding FontSize}"
+                                                       IsHitTestVisible="False"
+                                                       VerticalAlignment="Center" />
+                                            <VisualStateManager.VisualStateGroups>
+                                                <VisualStateGroup x:Name="CommonStates">
+                                                    <VisualState x:Name="Normal" />
+                                                    <VisualState x:Name="PointerOver">
+                                                        <Storyboard>
+                                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BorderElement" Storyboard.TargetProperty="Background">
+                                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TextControlBackgroundPointerOver}" />
+                                                            </ObjectAnimationUsingKeyFrames>
+                                                        </Storyboard>
+                                                    </VisualState>
+                                                    <VisualState x:Name="Focused">
+                                                        <Storyboard>
+                                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BorderElement" Storyboard.TargetProperty="Background">
+                                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TextControlBackgroundFocused}" />
+                                                            </ObjectAnimationUsingKeyFrames>
+                                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BorderElement" Storyboard.TargetProperty="BorderBrush">
+                                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TextControlBorderBrushFocused}" />
+                                                            </ObjectAnimationUsingKeyFrames>
+                                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BorderElement" Storyboard.TargetProperty="BorderThickness">
+                                                                <DiscreteObjectKeyFrame KeyTime="0" Value="1,1,1,2" />
+                                                            </ObjectAnimationUsingKeyFrames>
+                                                        </Storyboard>
+                                                    </VisualState>
+                                                    <VisualState x:Name="Disabled">
+                                                        <Storyboard>
+                                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BorderElement" Storyboard.TargetProperty="Background">
+                                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TextControlBackgroundDisabled}" />
+                                                            </ObjectAnimationUsingKeyFrames>
+                                                        </Storyboard>
+                                                    </VisualState>
+                                                </VisualStateGroup>
+                                            </VisualStateManager.VisualStateGroups>
+                                        </Grid>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Grid.Resources>
+
                     <TextBlock x:Name="BreadcrumbNameText"
                                Text=""
                                FontSize="12"
@@ -489,25 +651,23 @@
                                Tapped="BreadcrumbNameText_Tapped"
                                ToolTipService.ToolTip="Click to rename" />
                     <TextBox x:Name="NameBox"
-                             FontSize="12"
-                             Height="26"
-                             Padding="4,2"
+                             Style="{StaticResource NameBoxStyle}"
+                             MaxWidth="300"
+                             MinWidth="80"
                              Visibility="Collapsed"
                              TextChanged="Editor_TextChanged"
                              LostFocus="NameBox_LostFocus"
                              KeyDown="NameBox_KeyDown" />
                 </Grid>
 
-                <!-- Format button -->
+                <!-- Save button (moved from URL bar) -->
                 <Button Grid.Column="4"
-                        Click="FormatRequestJsonButton_Click"
-                        ToolTipService.ToolTip="Format request body (JSON / XML)"
+                        Click="SaveButton_Click"
+                        ToolTipService.ToolTip="Save"
                         Style="{StaticResource GhostButtonStyle}"
-                        Height="28">
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <FontIcon Glyph="&#xE943;" FontSize="12" />
-                        <TextBlock Text="Format" FontSize="12" />
-                    </StackPanel>
+                        Height="28"
+                        Width="34">
+                    <FontIcon Glyph="&#xE74E;" FontSize="14" />
                 </Button>
             </Grid>
 
@@ -518,7 +678,6 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="92" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
@@ -554,17 +713,8 @@
                              TextChanged="UrlBox_TextChanged"
                              Height="34" />
 
-                    <Button Grid.Column="2"
-                            Click="SaveButton_Click"
-                            ToolTipService.ToolTip="Save"
-                            Style="{StaticResource GhostButtonStyle}"
-                            Height="34"
-                            Width="34">
-                        <FontIcon Glyph="&#xE74E;" FontSize="14" />
-                    </Button>
-
                     <Button x:Name="SendButton"
-                            Grid.Column="3"
+                            Grid.Column="2"
                             Click="SendButton_Click"
                             Style="{ThemeResource AccentButtonStyle}"
                             Padding="20,6"
@@ -610,7 +760,9 @@
                     <TabView Grid.Row="1"
                              IsAddTabButtonVisible="False"
                              CanDragTabs="False"
-                             TabWidthMode="SizeToContent">
+                             TabWidthMode="SizeToContent"
+                             HorizontalAlignment="Stretch"
+                             VerticalAlignment="Stretch">
                         <TabViewItem Header="Params" IsClosable="False">
                             <controls:KeyValueTable x:Name="QueryTable"
                                                     KeyPlaceholderText="Query parameter name"
@@ -671,6 +823,16 @@
                                             <ComboBoxItem Content="JSON" Tag="Json" />
                                             <ComboBoxItem Content="XML" Tag="Xml" />
                                         </ComboBox>
+                                        <Button Click="FormatRequestJsonButton_Click"
+                                                ToolTipService.ToolTip="Format request body (JSON / XML)"
+                                                Style="{StaticResource GhostButtonStyle}"
+                                                Height="28"
+                                                Visibility="{Binding Visibility, ElementName=RawFormatComboBox}">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <FontIcon Glyph="&#xE943;" FontSize="12" />
+                                                <TextBlock Text="Format" FontSize="12" />
+                                            </StackPanel>
+                                        </Button>
                                         <Button x:Name="SelectFileButton"
                                                 Click="SelectBinaryFile_Click"
                                                 Visibility="Collapsed"
@@ -691,41 +853,25 @@
                                 </Grid>
 
                                 <Grid Grid.Row="1">
-                                    <TextBox x:Name="BodyBox"
-                                             AcceptsReturn="True"
-                                             TextWrapping="NoWrap"
-                                             FontFamily="Consolas"
-                                             BorderThickness="1"
-                                             BorderBrush="{StaticResource WorkbenchSubtleStrokeBrush}"
-                                             Background="#FFF8F9FA"
-                                             MinHeight="120"
-                                             ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                             PlaceholderText="JSON / text / WebSocket message / gRPC JSON request body"
-                                             TextChanged="Editor_TextChanged"
-                                             GotFocus="BodyBox_GotFocus"
-                                             LostFocus="BodyBox_LostFocus" />
+                                    <RichEditBox x:Name="BodyBox"
+                                                 AcceptsReturn="True"
+                                                 TextWrapping="NoWrap"
+                                                 FontFamily="Consolas"
+                                                 BorderThickness="1"
+                                                 BorderBrush="{StaticResource WorkbenchSubtleStrokeBrush}"
+                                                 Background="#FFF8F9FA"
+                                                 HorizontalAlignment="Stretch"
+                                                 VerticalAlignment="Stretch"
+                                                 MinHeight="120"
+                                                 Padding="10,8"
+                                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                                 PlaceholderText="JSON / text / WebSocket message / gRPC JSON request body"
+                                                 TextChanged="BodyBox_TextChanged" />
 
-                                    <!-- JSON highlighted preview overlay (shown when JSON format is selected and BodyBox has no focus) -->
-                                    <ScrollViewer x:Name="BodyHighlightScrollViewer"
-                                                  Visibility="Collapsed"
-                                                  HorizontalScrollBarVisibility="Auto"
-                                                  VerticalScrollBarVisibility="Auto"
-                                                  HorizontalScrollMode="Auto"
-                                                  VerticalScrollMode="Auto"
-                                                  Background="#FFF8F9FA"
-                                                  BorderThickness="1"
-                                                  BorderBrush="{StaticResource WorkbenchSubtleStrokeBrush}"
-                                                  PointerPressed="BodyHighlight_PointerPressed">
-                                        <RichTextBlock x:Name="BodyHighlightBlock"
-                                                       FontFamily="Consolas"
-                                                       FontSize="13"
-                                                       IsTextSelectionEnabled="True"
-                                                       TextWrapping="NoWrap"
-                                                       Padding="10,8" />
-                                    </ScrollViewer>
-
-                                    <controls:KeyValueTable x:Name="FormDataTable" Visibility="Collapsed" />
+                                    <controls:KeyValueTable x:Name="FormDataTable"
+                                                            SupportsValueKind="True"
+                                                            Visibility="Collapsed" />
                                     <controls:KeyValueTable x:Name="UrlEncodedTable" Visibility="Collapsed" />
 
                                     <StackPanel x:Name="BinaryInfoPanel"
@@ -946,6 +1092,151 @@
                         <StackPanel x:Name="WsMessageList" Spacing="4" />
                     </ScrollViewer>
                 </Grid>
+            </Border>
+
+            <Grid x:Name="EmptyWorkspacePanel"
+                  Grid.Row="0"
+                  Grid.RowSpan="6"
+                  Visibility="Collapsed"
+                  Background="{StaticResource WorkbenchPanelBrush}">
+                <StackPanel Width="340"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="18">
+                    <Grid Width="112"
+                          Height="112"
+                          HorizontalAlignment="Center">
+                        <Ellipse Fill="#0D000000" />
+                        <FontIcon Glyph="&#xE104;"
+                                  FontSize="54"
+                                  Foreground="#55FFFFFF"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
+                                  RenderTransformOrigin="0.5,0.5">
+                            <FontIcon.RenderTransform>
+                                <RotateTransform Angle="-45" />
+                            </FontIcon.RenderTransform>
+                        </FontIcon>
+                    </Grid>
+
+                    <StackPanel Spacing="2">
+                        <Button Click="EmptyCreateNewButton_Click"
+                                Style="{StaticResource EmptyCommandButtonStyle}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Create new"
+                                           FontSize="18"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <Border Style="{StaticResource ShortcutKeyStyle}">
+                                        <TextBlock Text="Ctrl" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </Border>
+                                    <Border Style="{StaticResource ShortcutKeyStyle}">
+                                        <TextBlock Text="N" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+
+                        <Button Click="EmptyImportButton_Click"
+                                Style="{StaticResource EmptyCommandButtonStyle}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Import"
+                                           FontSize="18"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <Border Style="{StaticResource ShortcutKeyStyle}">
+                                        <TextBlock Text="Ctrl" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </Border>
+                                    <Border Style="{StaticResource ShortcutKeyStyle}">
+                                        <TextBlock Text="O" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+
+                        <Button Click="EmptyFindButton_Click"
+                                Style="{StaticResource EmptyCommandButtonStyle}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Find in workspace"
+                                           FontSize="18"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <Border Style="{StaticResource ShortcutKeyStyle}">
+                                        <TextBlock Text="Ctrl" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </Border>
+                                    <Border Style="{StaticResource ShortcutKeyStyle}">
+                                        <TextBlock Text="K" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <!-- Environment editing overlay spanning the full right column -->
+        <Grid x:Name="EnvironmentOverlayPanel"
+              Grid.Column="2"
+              Visibility="Collapsed"
+              Padding="10,0,10,10"
+              RowSpacing="7">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button x:Name="EnvBackButton"
+                        Click="EnvBackButton_Click"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="8,4"
+                        MinWidth="28"
+                        MinHeight="28"
+                        VerticalAlignment="Center"
+                        ToolTipService.ToolTip="Back to workspace">
+                    <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                </Button>
+                <TextBlock x:Name="EnvTitleText"
+                           Grid.Column="1"
+                           Text=""
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+                <Button Grid.Column="2"
+                        Click="RenameEnvironmentButton_Click"
+                        ToolTipService.ToolTip="Rename"
+                        Style="{StaticResource GhostButtonStyle}"
+                        VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE8AC;" FontSize="13" />
+                </Button>
+            </Grid>
+
+            <Border Grid.Row="1"
+                    Style="{StaticResource PanelBorderStyle}"
+                    Padding="0">
+                <controls:KeyValueTable x:Name="EnvironmentTable" />
             </Border>
         </Grid>
 

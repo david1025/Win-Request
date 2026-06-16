@@ -29,6 +29,7 @@ public sealed class WorkspaceStorage
             var workspace = JsonSerializer.Deserialize<ApiWorkspace>(json, JsonOptions) ?? CreateDefaultWorkspace();
             foreach (var collection in workspace.Collections)
                 collection.EnsureNodes();
+            workspace.EnsureEnvironments();
             return workspace;
         }
         catch
@@ -73,9 +74,16 @@ public sealed class WorkspaceStorage
         {
             OpenRequestTabIds = { getUsers.Id, updateProfile.Id },
             ActiveRequestTabId = getUsers.Id,
-            EnvironmentVariables =
+            Environments =
             {
-                new KeyValuePairItem { Key = "baseUrl", Value = "https://api.example.com", Description = "Default API host" }
+                new EnvironmentProfile
+                {
+                    Name = "Default",
+                    Variables =
+                    {
+                        new KeyValuePairItem { Key = "baseUrl", Value = "https://api.example.com", Description = "Default API host" }
+                    }
+                }
             },
             Collections =
             {

@@ -169,6 +169,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="30" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition x:Name="ValueKindHeaderColumn" Width="0" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="1.2*" />
                 <ColumnDefinition Width="30" />
@@ -189,13 +190,22 @@
                        VerticalAlignment="Center"
                        Padding="8,7" />
             <TextBlock Grid.Column="2"
-                       Text="Value"
+                       x:Name="ValueKindHeaderText"
+                       Text=""
+                       Visibility="Collapsed"
                        FontSize="12"
                        FontWeight="SemiBold"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                        VerticalAlignment="Center"
                        Padding="8,7" />
             <TextBlock Grid.Column="3"
+                       Text="Value"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       VerticalAlignment="Center"
+                       Padding="8,7" />
+            <TextBlock Grid.Column="4"
                        Text="Description"
                        FontSize="12"
                        FontWeight="SemiBold"

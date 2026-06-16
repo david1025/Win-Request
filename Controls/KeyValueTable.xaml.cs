@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Windows.Storage.Pickers;
 using WinRequest.Models;
 using WinRequest.Services;
 
@@ -23,6 +25,9 @@ public sealed partial class KeyValueTable : UserControl
 
     public static readonly DependencyProperty DescriptionPlaceholderTextProperty =
         DependencyProperty.Register(nameof(DescriptionPlaceholderText), typeof(string), typeof(KeyValueTable), new PropertyMetadata("Description"));
+
+    public static readonly DependencyProperty SupportsValueKindProperty =
+        DependencyProperty.Register(nameof(SupportsValueKind), typeof(bool), typeof(KeyValueTable), new PropertyMetadata(false, OnSupportsValueKindChanged));
 
     public KeyValueTable()
     {
@@ -49,6 +54,12 @@ public sealed partial class KeyValueTable : UserControl
         set => SetValue(DescriptionPlaceholderTextProperty, value);
     }
 
+    public bool SupportsValueKind
+    {
+        get => (bool)GetValue(SupportsValueKindProperty);
+        set => SetValue(SupportsValueKindProperty, value);
+    }
+
     public void EnableVariableAutoComplete(Grid hostGrid, Func<List<string>> getVariableNames)
     {
         _autoCompleteHostGrid = hostGrid;
@@ -62,10 +73,10 @@ public sealed partial class KeyValueTable : UserControl
         DisposeAutoCompletes();
 
         foreach (var item in items)
-            AddRow(item.Enabled, item.Key, item.Value, item.Description);
+            AddRow(item.Enabled, item.Key, item.Value, item.Description, item.ValueKind);
 
         if (RowsPanel.Children.Count == 0)
-            AddRow(true, "", "", "");
+            AddRow(true, "", "", "", KeyValueValueKind.Text);
 
         _suppressChanged = false;
     }
@@ -82,6 +93,7 @@ public sealed partial class KeyValueTable : UserControl
             var keyBox = FindChild<TextBox>(row, "RowKeyBox");
             var valueBox = FindChild<TextBox>(row, "RowValueBox");
             var descriptionBox = FindChild<TextBox>(row, "RowDescriptionBox");
+            var valueKindBox = FindChild<ComboBox>(row, "RowValueKindBox");
 
             if (keyBox == null)
                 continue;
@@ -94,6 +106,7 @@ public sealed partial class KeyValueTable : UserControl
             {
                 Key = key,
                 Value = valueBox?.Text ?? "",
+                ValueKind = SupportsValueKind ? GetSelectedValueKind(valueKindBox) : KeyValueValueKind.Text,
                 Description = descriptionBox?.Text ?? "",
                 Enabled = checkBox?.IsChecked ?? true
             });
@@ -101,7 +114,7 @@ public sealed partial class KeyValueTable : UserControl
         return result;
     }
 
-    private void AddRow(bool enabled, string key, string value, string description)
+    private void AddRow(bool enabled, string key, string value, string description, KeyValueValueKind valueKind)
     {
         var row = new Grid
         {
@@ -112,6 +125,7 @@ public sealed partial class KeyValueTable : UserControl
         };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = SupportsValueKind ? new GridLength(92) : new GridLength(0) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
@@ -132,11 +146,22 @@ public sealed partial class KeyValueTable : UserControl
 
         var valueBox = CreateCellTextBox("RowValueBox", value, ValuePlaceholderText, true);
         valueBox.TextChanged += Row_FieldChanged;
-        Grid.SetColumn(valueBox, 2);
+        Grid.SetColumn(valueBox, 3);
+
+        ComboBox? valueKindBox = null;
+        if (SupportsValueKind)
+        {
+            valueKindBox = CreateValueKindComboBox(valueKind);
+            valueKindBox.SelectionChanged += RowValueKindBox_SelectionChanged;
+            Grid.SetColumn(valueKindBox, 2);
+        }
+
+        var filePickerPanel = CreateFilePickerPanel(value);
+        Grid.SetColumn(filePickerPanel, 3);
 
         var descriptionBox = CreateCellTextBox("RowDescriptionBox", description, DescriptionPlaceholderText, false);
         descriptionBox.TextChanged += Row_FieldChanged;
-        Grid.SetColumn(descriptionBox, 3);
+        Grid.SetColumn(descriptionBox, 4);
 
         if (_variableNamesProvider != null && _autoCompleteHostGrid != null)
         {
@@ -156,15 +181,85 @@ public sealed partial class KeyValueTable : UserControl
         deleteButton.Content = new FontIcon { Glyph = "\uE74D", FontSize = 11 };
         deleteButton.Click += DeleteRow_Click;
         ToolTipService.SetToolTip(deleteButton, "Delete");
-        Grid.SetColumn(deleteButton, 4);
+        Grid.SetColumn(deleteButton, 5);
 
         row.Children.Add(checkBox);
         row.Children.Add(keyBox);
+        if (valueKindBox != null)
+            row.Children.Add(valueKindBox);
         row.Children.Add(valueBox);
+        row.Children.Add(filePickerPanel);
         row.Children.Add(descriptionBox);
         row.Children.Add(deleteButton);
 
         RowsPanel.Children.Add(row);
+        UpdateValueKindVisualState(row);
+    }
+
+    private ComboBox CreateValueKindComboBox(KeyValueValueKind valueKind)
+    {
+        var comboBox = new ComboBox
+        {
+            Name = "RowValueKindBox",
+            MinWidth = 82,
+            Height = 32,
+            Margin = new Thickness(4, 2, 4, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        comboBox.Items.Add(new ComboBoxItem { Content = "Text", Tag = KeyValueValueKind.Text });
+        comboBox.Items.Add(new ComboBoxItem { Content = "File", Tag = KeyValueValueKind.File });
+        comboBox.SelectedIndex = valueKind == KeyValueValueKind.File ? 1 : 0;
+        return comboBox;
+    }
+
+    private Grid CreateFilePickerPanel(string path)
+    {
+        var panel = new Grid
+        {
+            Name = "RowFilePickerPanel",
+            Visibility = Visibility.Collapsed,
+            Padding = new Thickness(6, 3, 6, 3),
+            ColumnSpacing = 6,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var button = new Button
+        {
+            Name = "RowFilePickerButton",
+            Height = 30,
+            Padding = new Thickness(10, 4, 10, 4),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        button.Content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 5,
+            Children =
+            {
+                new FontIcon { Glyph = "\uE838", FontSize = 12 },
+                new TextBlock { Text = "Choose file", FontSize = 12, VerticalAlignment = VerticalAlignment.Center }
+            }
+        };
+        button.Click += SelectFormFile_Click;
+        ToolTipService.SetToolTip(button, "Choose file");
+
+        var pathText = new TextBlock
+        {
+            Name = "RowFilePathText",
+            Text = path,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 12,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        Grid.SetColumn(pathText, 1);
+
+        panel.Children.Add(button);
+        panel.Children.Add(pathText);
+        return panel;
     }
 
     private TextBox CreateCellTextBox(string name, string text, string placeholder, bool mono)
@@ -189,6 +284,37 @@ public sealed partial class KeyValueTable : UserControl
             ItemsChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    private void RowValueKindBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is ComboBox comboBox && comboBox.Parent is Grid row)
+            UpdateValueKindVisualState(row);
+
+        Row_FieldChanged(sender, e);
+    }
+
+    private async void SelectFormFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Parent is not Grid panel || panel.Parent is not Grid row)
+            return;
+
+        var picker = new FileOpenPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRequest.App.Current.MainWindowHandle);
+        picker.FileTypeFilter.Add("*");
+
+        var file = await picker.PickSingleFileAsync();
+        if (file == null)
+            return;
+
+        var valueBox = FindChild<TextBox>(row, "RowValueBox");
+        var pathText = FindChild<TextBlock>(row, "RowFilePathText");
+        if (valueBox != null)
+            valueBox.Text = file.Path;
+        if (pathText != null)
+            pathText.Text = file.Path;
+
+        Row_FieldChanged(sender, e);
+    }
+
     private void DeleteRow_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button btn)
@@ -209,7 +335,7 @@ public sealed partial class KeyValueTable : UserControl
 
     private void AddRow_Click(object sender, RoutedEventArgs e)
     {
-        AddRow(true, "", "", "");
+        AddRow(true, "", "", "", KeyValueValueKind.Text);
         ItemsChanged?.Invoke(this, EventArgs.Empty);
 
         if (RowsPanel.Children.LastOrDefault() is Grid lastRow)
@@ -217,6 +343,44 @@ public sealed partial class KeyValueTable : UserControl
             var keyBox = FindChild<TextBox>(lastRow, "RowKeyBox");
             keyBox?.Focus(FocusState.Programmatic);
         }
+    }
+
+    private void UpdateSupportsValueKind()
+    {
+        if (ValueKindHeaderColumn == null || ValueKindHeaderText == null)
+            return;
+
+        ValueKindHeaderColumn.Width = SupportsValueKind ? new GridLength(92) : new GridLength(0);
+        ValueKindHeaderText.Visibility = SupportsValueKind ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void UpdateValueKindVisualState(Grid row)
+    {
+        bool isFile = SupportsValueKind && GetSelectedValueKind(FindChild<ComboBox>(row, "RowValueKindBox")) == KeyValueValueKind.File;
+        var valueBox = FindChild<TextBox>(row, "RowValueBox");
+        var filePanel = FindChild<Grid>(row, "RowFilePickerPanel");
+        var pathText = FindChild<TextBlock>(row, "RowFilePathText");
+
+        if (valueBox != null)
+            valueBox.Visibility = isFile ? Visibility.Collapsed : Visibility.Visible;
+        if (filePanel != null)
+            filePanel.Visibility = isFile ? Visibility.Visible : Visibility.Collapsed;
+        if (pathText != null && valueBox != null)
+            pathText.Text = valueBox.Text;
+    }
+
+    private static KeyValueValueKind GetSelectedValueKind(ComboBox? comboBox)
+    {
+        if (comboBox?.SelectedItem is ComboBoxItem item && item.Tag is KeyValueValueKind kind)
+            return kind;
+
+        return KeyValueValueKind.Text;
+    }
+
+    private static void OnSupportsValueKindChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is KeyValueTable table)
+            table.UpdateSupportsValueKind();
     }
 
     private static T? FindChild<T>(DependencyObject parent, string name) where T : FrameworkElement
